@@ -10,6 +10,9 @@
   const STORAGE_KEY = 'AZICELL_DB_STATE_V1';
   const SESSION_KEY = 'AZICELL_ACTIVE_SESSION_V1';
   const VERSION_KEY = 'AZICELL_INSTALLED_VER';
+  const LOGIN_GUARD_KEY = 'AZICELL_LOGIN_GUARD_V1';
+  const SESSION_IDLE_MS = 8 * 60 * 60 * 1000; // Auto-logout setelah 8 jam tidak aktif
+  const PWD_SALT = 'AZICELL_SEC_2026_V1:';
 
   // Daftar UUID Service BLE Printer Thermal populer (58mm/80mm: RPP, Eppos, Panda, VSC, Xprinter, Goojprt, Zjiang, Blueprint)
   const BLE_PRINTER_SERVICES = [
@@ -126,6 +129,124 @@
       .replace(/'/g, '&#39;');
   }
 
+  // Escaping khusus literal string JS di dalam atribut HTML onclick="fn('...')"
+  function escJs(val) {
+    const jsSafe = String(val === null || val === undefined ? '' : val)
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'")
+      .replace(/\r/g, '')
+      .replace(/\n/g, ' ');
+    return esc(jsSafe);
+  }
+
+  // Pure-JS SHA-256 standar FIPS 180-4 (bekerja sinkron & offline tanpa dependensi eksternal)
+  function sha256Hex(input) {
+    const bytes = new TextEncoder().encode(String(input));
+    const K = [
+      0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+      0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+      0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+      0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+      0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+      0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+      0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+      0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+    ];
+    let h0 = 0x6a09e667, h1 = 0xbb67ae85, h2 = 0x3c6ef372, h3 = 0xa54ff53a;
+    let h4 = 0x510e527f, h5 = 0x9b05688c, h6 = 0x1f83d9ab, h7 = 0x5be0cd19;
+
+    const bitLen = bytes.length * 8;
+    const totalLen = Math.ceil((bytes.length + 9) / 64) * 64;
+    const buf = new Uint8Array(totalLen);
+    buf.set(bytes);
+    buf[bytes.length] = 0x80;
+    const view = new DataView(buf.buffer);
+    view.setUint32(totalLen - 8, Math.floor(bitLen / 0x100000000), false);
+    view.setUint32(totalLen - 4, bitLen >>> 0, false);
+
+    const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+    const w = new Uint32Array(64);
+    for (let offset = 0; offset < totalLen; offset += 64) {
+      for (let i = 0; i < 16; i++) w[i] = view.getUint32(offset + i * 4, false);
+      for (let i = 16; i < 64; i++) {
+        const s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >>> 3);
+        const s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >>> 10);
+        w[i] = (w[i - 16] + s0 + w[i - 7] + s1) >>> 0;
+      }
+      let a = h0, b = h1, c = h2, d = h3, e = h4, f = h5, g = h6, h = h7;
+      for (let i = 0; i < 64; i++) {
+        const S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+        const ch = (e & f) ^ ((~e) & g);
+        const temp1 = (h + S1 + ch + K[i] + w[i]) >>> 0;
+        const S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+        const maj = (a & b) ^ (a & c) ^ (b & c);
+        const temp2 = (S0 + maj) >>> 0;
+        h = g; g = f; f = e; e = (d + temp1) >>> 0;
+        d = c; c = b; b = a; a = (temp1 + temp2) >>> 0;
+      }
+      h0 = (h0 + a) >>> 0; h1 = (h1 + b) >>> 0; h2 = (h2 + c) >>> 0; h3 = (h3 + d) >>> 0;
+      h4 = (h4 + e) >>> 0; h5 = (h5 + f) >>> 0; h6 = (h6 + g) >>> 0; h7 = (h7 + h) >>> 0;
+    }
+    return [h0, h1, h2, h3, h4, h5, h6, h7].map((v) => v.toString(16).padStart(8, '0')).join('');
+  }
+
+  function hashPassword(plain) {
+    const s = String(plain || '');
+    if (s.startsWith('sha256:')) return s;
+    return 'sha256:' + sha256Hex(PWD_SALT + s);
+  }
+
+  function verifyPassword(plain, stored) {
+    const st = String(stored || '');
+    const inp = String(plain || '');
+    if (!st) return false;
+    if (st.startsWith('sha256:')) {
+      return st === ('sha256:' + sha256Hex(PWD_SALT + inp));
+    }
+    return st === inp;
+  }
+
+  function isDefaultWeakPassword(stored) {
+    return verifyPassword('123', stored);
+  }
+
+  function stripProtoKeys(obj) {
+    if (Array.isArray(obj)) return obj.map(stripProtoKeys);
+    if (obj && typeof obj === 'object') {
+      const clean = {};
+      Object.keys(obj).forEach((k) => {
+        if (k === '__proto__' || k === 'constructor' || k === 'prototype') return;
+        clean[k] = stripProtoKeys(obj[k]);
+      });
+      return clean;
+    }
+    return obj;
+  }
+
+  function canManageStock() {
+    return Boolean(currentUser && (currentUser.akses.lihat_modal || currentUser.jabatan === 'Pemilik' || currentUser.jabatan === 'Gudang'));
+  }
+
+  function requirePerm(cond, msg) {
+    if (!currentUser || !cond) {
+      showToast(msg || 'Akses ditolak: Akun Anda tidak memiliki izin untuk tindakan ini.', 'error');
+      return false;
+    }
+    return true;
+  }
+
+  function getLoginGuard() {
+    try {
+      const raw = localStorage.getItem(LOGIN_GUARD_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (e) {}
+    return { fails: 0, lockUntil: 0 };
+  }
+
+  function setLoginGuard(guard) {
+    try { localStorage.setItem(LOGIN_GUARD_KEY, JSON.stringify(guard)); } catch (e) {}
+  }
+
   // Data Awal (Seed Data) sesuai Bab 15 & sinkron 2 akun bawaan Code.gs (owner & kasir)
   function createInitialDatabase() {
     const now = nowStr();
@@ -138,8 +259,8 @@
         ...window.AZI_CONFIG.STORE_PROFILE
       },
       karyawan: [
-        { id: 'USR-01', username: 'owner', password: '123', nama: 'Pemilik Azi Cell', jabatan: 'Pemilik', kontak: '081234567890', aktif: true, wajibGantiPassword: false, akses: JSON.parse(JSON.stringify(ROLE_PRESETS.Pemilik)), dibuatPada: now },
-        { id: 'USR-02', username: 'kasir', password: '123', nama: 'Kasir Azi Cell', jabatan: 'Kasir', kontak: '081299991111', aktif: true, wajibGantiPassword: false, akses: JSON.parse(JSON.stringify(ROLE_PRESETS.Kasir)), dibuatPada: now }
+        { id: 'USR-01', username: 'owner', password: hashPassword('123'), nama: 'Pemilik Azi Cell', jabatan: 'Pemilik', kontak: '081234567890', aktif: true, wajibGantiPassword: false, akses: JSON.parse(JSON.stringify(ROLE_PRESETS.Pemilik)), dibuatPada: now },
+        { id: 'USR-02', username: 'kasir', password: hashPassword('123'), nama: 'Kasir Azi Cell', jabatan: 'Kasir', kontak: '081299991111', aktif: true, wajibGantiPassword: false, akses: JSON.parse(JSON.stringify(ROLE_PRESETS.Kasir)), dibuatPada: now }
       ],
       akunKas: [
         { id: 'ACC-TUNAI', nama: 'Kas Tunai Laci', tipe: 'Tunai', saldoAwal: 5000000, aktif: true },
@@ -294,7 +415,17 @@
       const raw = sessionStorage.getItem(SESSION_KEY) || localStorage.getItem(SESSION_KEY);
       if (!raw) return null;
       const sess = JSON.parse(raw);
+      if (sess.lastActiveAt && (Date.now() - Number(sess.lastActiveAt)) > SESSION_IDLE_MS) {
+        sessionStorage.removeItem(SESSION_KEY);
+        localStorage.removeItem(SESSION_KEY);
+        return null;
+      }
       const found = db.karyawan.find((u) => u.username === sess.username && u.aktif);
+      if (found) {
+        const refreshed = JSON.stringify({ username: found.username, lastActiveAt: Date.now() });
+        sessionStorage.setItem(SESSION_KEY, refreshed);
+        localStorage.setItem(SESSION_KEY, refreshed);
+      }
       return found || null;
     } catch (e) {
       return null;
@@ -309,8 +440,9 @@
       return;
     }
     currentUser = user;
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ username: user.username }));
-    localStorage.setItem(SESSION_KEY, JSON.stringify({ username: user.username }));
+    const payload = JSON.stringify({ username: user.username, lastActiveAt: Date.now() });
+    sessionStorage.setItem(SESSION_KEY, payload);
+    localStorage.setItem(SESSION_KEY, payload);
   }
 
   function rp(val) {
@@ -329,7 +461,7 @@
     };
     const el = document.createElement('div');
     el.className = `pointer-events-auto px-4 py-3 rounded-xl border backdrop-blur-lg shadow-2xl text-xs sm:text-sm font-semibold transition-all duration-300 ${colors[type] || colors.info}`;
-    el.innerHTML = msg;
+    el.textContent = String(msg || '');
     container.appendChild(el);
     setTimeout(() => {
       el.style.opacity = '0';
@@ -843,7 +975,10 @@
             <!-- 3. PASSWORD -->
             <div>
               <label class="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">Password</label>
-              <input id="login-password" type="password" required autocomplete="current-password" placeholder="Masukkan password..." class="w-full px-4 py-3 rounded-xl bg-slate-900/90 border border-slate-700/80 text-white text-sm focus:outline-none focus:border-amber-400" />
+              <div class="relative">
+                <input id="login-password" type="password" required autocomplete="current-password" placeholder="Masukkan password..." class="w-full px-4 py-3 pr-11 rounded-xl bg-slate-900/90 border border-slate-700/80 text-white text-sm focus:outline-none focus:border-amber-400" />
+                <button type="button" onclick="window.AZI.toggleLoginPassword()" title="Tampilkan / Sembunyikan Password" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-amber-300 text-sm px-1">👁️</button>
+              </div>
             </div>
 
             <div id="login-error-box" class="hidden p-3 rounded-xl bg-rose-950/80 border border-rose-500/40 text-xs text-rose-200 font-medium"></div>
@@ -861,16 +996,13 @@
             ` : ''}
           </form>
 
-          <!-- Pintasan Uji Akun sesuai akun aktif di database -->
-          <div class="mt-6 pt-5 border-t border-slate-800/80">
-            <div class="text-[11px] font-semibold text-slate-400 mb-2 text-center">Pintasan Akun Aktif (Password awal: <span class="text-amber-300 font-mono-num">123</span>):</div>
-            <div class="flex flex-wrap justify-center gap-1.5">
-              ${db.karyawan.filter((k) => k.aktif).slice(0, 6).map((u) => `
-                <button type="button" onclick="window.AZI.fillDemoLogin('${esc(u.username)}')" class="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/70 text-[11px] font-bold text-slate-300 capitalize">
-                  ${esc(u.username)} <span class="text-[10px] text-amber-400">(${esc(u.jabatan)})</span>
-                </button>
-              `).join('')}
+          <!-- Catatan Keamanan (Tidak membocorkan username/password ke publik) -->
+          <div class="mt-6 pt-4 border-t border-slate-800/80 text-center space-y-1">
+            <div class="text-[11px] font-semibold text-emerald-400/90 flex items-center justify-center gap-1.5">
+              <span>🔒</span>
+              <span>Dilindungi Enkripsi SHA-256 & Proteksi Brute-Force</span>
             </div>
+            <p class="text-[10px] text-slate-500">Akses khusus staf resmi ${esc(db.config.namaToko)}. Hubungi Pemilik jika lupa kata sandi.</p>
           </div>
         </div>
         <div class="mt-4 text-[11px] text-slate-500 flex items-center gap-2">
@@ -1017,8 +1149,8 @@
           <h3 class="text-lg font-extrabold text-white mb-1">Aktivasi Keamanan Akun Baru</h3>
           <p class="text-xs text-slate-300 mb-4">Halo <b>${currentUser.nama}</b>, Anda login menggunakan password sementara. Silakan buat password baru Anda sebelum masuk ke dashboard.</p>
           <form onsubmit="window.AZI.submitNewPassword(event)" class="space-y-3">
-            <input id="new-pass-1" type="password" required minlength="3" placeholder="Password Baru" class="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-sm text-white" />
-            <input id="new-pass-2" type="password" required minlength="3" placeholder="Ulangi Password Baru" class="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-sm text-white" />
+            <input id="new-pass-1" type="password" required minlength="4" placeholder="Password Baru" class="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-sm text-white" />
+            <input id="new-pass-2" type="password" required minlength="4" placeholder="Ulangi Password Baru" class="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-sm text-white" />
             <button type="submit" class="w-full py-3 rounded-xl btn-luxury text-xs uppercase">Simpan Password & Masuk</button>
           </form>
         </div>
@@ -1052,7 +1184,18 @@
     const totalSaldoKasBank = balances.reduce((s, a) => s + a.saldoAkhir, 0);
     const akses = currentUser.akses;
 
+    const weakPwd = isDefaultWeakPassword(currentUser.password);
+
     return `
+      ${weakPwd ? `
+        <div class="p-3.5 rounded-2xl bg-amber-950/60 border border-amber-500/50 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div class="text-amber-200">
+            <b>⚠️ Pengingat Keamanan:</b> Akun Anda masih menggunakan password bawaan. Disarankan segera mengganti sandi agar akun toko tetap aman.
+          </div>
+          <button onclick="window.AZI.openChangePasswordModal()" class="px-3 py-1.5 rounded-xl btn-luxury text-[11px] shrink-0">🔐 Ganti Sandi Sekarang</button>
+        </div>
+      ` : ''}
+
       <!-- TOMBOL CEPAT SESUAI IZIN AKUN (Bab 05) -->
       <div class="glass-panel rounded-2xl p-4 sm:p-5 flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -1201,7 +1344,7 @@
             <div class="text-xs font-bold text-white mt-0.5 truncate" title="${esc(b.nama)}">${esc(b.nama)}</div>
             <div class="text-xs font-extrabold text-amber-400 font-mono-num mt-1">${rp(b.hargaJual)}</div>
           </div>
-          <button onclick="window.AZI.addToPosCart('${esc(b.sku)}')" ${stok <= 0 ? 'disabled' : ''} class="px-3 py-2 rounded-xl shrink-0 ${stok > 0 ? 'btn-luxury' : 'bg-slate-800 text-slate-500 cursor-not-allowed'} text-xs">
+          <button onclick="window.AZI.addToPosCart('${escJs(b.sku)}')" ${stok <= 0 ? 'disabled' : ''} class="px-3 py-2 rounded-xl shrink-0 ${stok > 0 ? 'btn-luxury' : 'bg-slate-800 text-slate-500 cursor-not-allowed'} text-xs">
             + Keranjang
           </button>
         </div>
@@ -1396,10 +1539,10 @@
                   </td>
                   <td class="py-2.5 text-right space-x-1 whitespace-nowrap">
                     ${p.statusDokumen === 'Final' ? `
-                      ${currentUser.akses.cetak_ulang ? `<button onclick="window.AZI.openReceiptModal('PENJUALAN', '${esc(p.no)}')" class="px-2.5 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-300 font-bold text-[11px]">Nota / Invoice</button>` : `<span class="text-[10px] text-slate-500">Cetak terkunci</span>`}
+                      ${currentUser.akses.cetak_ulang ? `<button onclick="window.AZI.openReceiptModal('PENJUALAN', '${escJs(p.no)}')" class="px-2.5 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-300 font-bold text-[11px]">Nota / Invoice</button>` : `<span class="text-[10px] text-slate-500">Cetak terkunci</span>`}
                     ` : `
-                      <button onclick="window.AZI.finalizeDraftSale('${esc(p.no)}')" class="px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-bold text-[11px]">Finalisasi</button>
-                      <button onclick="window.AZI.deleteDraftSale('${esc(p.no)}')" class="px-2 py-1 rounded-lg bg-rose-500/20 border border-rose-500/40 text-rose-300 font-bold text-[11px]">Hapus</button>
+                      <button onclick="window.AZI.finalizeDraftSale('${escJs(p.no)}')" class="px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-bold text-[11px]">Finalisasi</button>
+                      <button onclick="window.AZI.deleteDraftSale('${escJs(p.no)}')" class="px-2 py-1 rounded-lg bg-rose-500/20 border border-rose-500/40 text-rose-300 font-bold text-[11px]">Hapus</button>
                     `}
                   </td>
                 </tr>
@@ -1499,19 +1642,19 @@
                   </div>
                 </div>
                 <div class="pt-2 border-t border-slate-800 flex flex-wrap gap-2 justify-end">
-                  <button onclick="window.AZI.openServiceWorkModal('${esc(s.no)}')" class="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold text-[11px]">
+                  <button onclick="window.AZI.openServiceWorkModal('${escJs(s.no)}')" class="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold text-[11px]">
                     Update Status / Part & Jasa
                   </button>
                   ${(s.statusPengerjaan !== 'Batal' && s.sisaTagihan > 0) ? `
-                    <button onclick="window.AZI.openPayModal('SERVIS', '${esc(s.no)}', ${s.sisaTagihan})" class="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 font-bold text-[11px]">
+                    <button onclick="window.AZI.openPayModal('SERVIS', '${escJs(s.no)}', ${s.sisaTagihan})" class="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 font-bold text-[11px]">
                       💳 Bayar Pelunasan
                     </button>
                   ` : ''}
-                  <button onclick="window.AZI.openReceiptModal('SERVIS_TERIMA', '${esc(s.no)}')" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-[11px]">
+                  <button onclick="window.AZI.openReceiptModal('SERVIS_TERIMA', '${escJs(s.no)}')" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-[11px]">
                     Tanda Terima
                   </button>
                   ${(s.statusPengerjaan === 'Selesai' || s.statusPengerjaan === 'Diambil') ? `
-                    <button onclick="window.AZI.openReceiptModal('SERVIS_FINAL', '${esc(s.no)}')" class="px-3 py-1.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-300 font-bold text-[11px]">
+                    <button onclick="window.AZI.openReceiptModal('SERVIS_FINAL', '${escJs(s.no)}')" class="px-3 py-1.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-300 font-bold text-[11px]">
                       Cetak Nota / Invoice
                     </button>
                   ` : ''}
@@ -1560,8 +1703,8 @@
           <td class="py-2.5 text-right font-mono-num font-extrabold ${akhir <= b.stokMinimum ? 'text-rose-400' : 'text-emerald-300'}">${akhir} ${esc(b.satuan)}</td>
           ${canManageStock ? `
             <td class="py-2.5 text-right whitespace-nowrap space-x-1">
-              <button onclick="window.AZI.editMasterBarang('${esc(b.sku)}')" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[10px]">Edit</button>
-              <button onclick="window.AZI.toggleBarangActive('${esc(b.sku)}')" class="px-2 py-1 rounded ${b.aktif ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'} font-bold text-[10px]">${b.aktif ? 'Aktif' : 'Nonaktif'}</button>
+              <button onclick="window.AZI.editMasterBarang('${escJs(b.sku)}')" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[10px]">Edit</button>
+              <button onclick="window.AZI.toggleBarangActive('${escJs(b.sku)}')" class="px-2 py-1 rounded ${b.aktif ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'} font-bold text-[10px]">${b.aktif ? 'Aktif' : 'Nonaktif'}</button>
             </td>
           ` : ''}
         </tr>
@@ -1823,7 +1966,7 @@
                   <div class="text-slate-400">Total: ${rp(s.totalBiayaFinal || s.estimasiBiaya)} | Sudah Bayar: ${rp(s.totalTerbayar)}</div>
                   <div class="font-bold text-rose-400 font-mono-num">Sisa Tagihan: ${rp(s.sisaTagihan)}</div>
                 </div>
-                <button onclick="window.AZI.openPayModal('SERVIS', '${esc(s.no)}', ${s.sisaTagihan})" class="px-3 py-2 rounded-xl btn-luxury text-xs shrink-0">Terima Pelunasan</button>
+                <button onclick="window.AZI.openPayModal('SERVIS', '${escJs(s.no)}', ${s.sisaTagihan})" class="px-3 py-2 rounded-xl btn-luxury text-xs shrink-0">Terima Pelunasan</button>
               </div>
             `).join('')}
             ${piutangSales.map((p) => `
@@ -1833,7 +1976,7 @@
                   <div class="text-slate-400">Total: ${rp(p.totalAkhir)} | Sudah Bayar: ${rp(p.jumlahTerbayar)}</div>
                   <div class="font-bold text-rose-400 font-mono-num">Sisa Piutang: ${rp(p.sisaPiutang)}</div>
                 </div>
-                <button onclick="window.AZI.openPayModal('PENJUALAN', '${esc(p.no)}', ${p.sisaPiutang})" class="px-3 py-2 rounded-xl btn-luxury text-xs shrink-0">Terima Pelunasan</button>
+                <button onclick="window.AZI.openPayModal('PENJUALAN', '${escJs(p.no)}', ${p.sisaPiutang})" class="px-3 py-2 rounded-xl btn-luxury text-xs shrink-0">Terima Pelunasan</button>
               </div>
             `).join('')}
             ${piutangServis.length === 0 && piutangSales.length === 0 ? `<p class="text-xs text-emerald-400 py-4 text-center">Semua tagihan pelanggan sudah Lunas!</p>` : ''}
@@ -1852,7 +1995,7 @@
                   <div class="text-slate-400">Total Beli: ${rp(pb.total)} | Sudah Bayar: ${rp(pb.dibayar)}</div>
                   <div class="font-bold text-rose-400 font-mono-num">Sisa Utang: ${rp(pb.sisaUtang)}</div>
                 </div>
-                <button onclick="window.AZI.openPayModal('PEMBELIAN', '${esc(pb.no)}', ${pb.sisaUtang})" class="px-3 py-2 rounded-xl btn-cyber text-xs shrink-0">Bayar Utang</button>
+                <button onclick="window.AZI.openPayModal('PEMBELIAN', '${escJs(pb.no)}', ${pb.sisaUtang})" class="px-3 py-2 rounded-xl btn-cyber text-xs shrink-0">Bayar Utang</button>
               </div>
             `).join('')}
             ${utangBeli.length === 0 ? `<p class="text-xs text-emerald-400 py-4 text-center">Tidak ada utang pemasok yang belum lunas.</p>` : ''}
@@ -2071,9 +2214,31 @@
               <p class="text-xs text-slate-400">Saldo Kas, Nilai Persediaan, Modal Pemilik, Omzet Barang & Jasa, dan Laba dipisahkan secara ketat sesuai Bab 12.</p>
             </div>
             ${akses.ekspor_laporan ? `
-              <button onclick="window.AZI.exportReportCsv()" class="px-4 py-2.5 rounded-xl btn-cyber text-xs">📥 Ekspor Laporan CSV Lengkap</button>
+              <div class="flex flex-wrap items-center gap-2">
+                <button onclick="window.AZI.exportReportExcel()" class="px-4 py-2.5 rounded-xl btn-luxury text-xs flex items-center gap-1.5">
+                  <span>📊</span><span>Unduh Excel Rapi (.xls — 5 Sheet)</span>
+                </button>
+                <button onclick="window.AZI.exportReportCsv('lengkap')" class="px-3.5 py-2.5 rounded-xl btn-cyber text-xs flex items-center gap-1.5">
+                  <span>📥</span><span>CSV Ringkasan Rapi</span>
+                </button>
+              </div>
             ` : ''}
           </div>
+
+          ${akses.ekspor_laporan ? `
+            <div class="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div class="text-slate-300">
+                <span class="font-bold text-emerald-400">Ekspor CSV Bersih Per Tabel</span>
+                <span class="text-[11px] text-slate-400 ml-1">(Sudah otomatis rapi dibuka di Excel Indonesia tanpa edit kolom):</span>
+              </div>
+              <div class="flex flex-wrap gap-1.5">
+                <button onclick="window.AZI.exportReportCsv('penjualan')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-sky-500/30 text-sky-300 font-bold text-[11px]">📥 CSV Penjualan</button>
+                <button onclick="window.AZI.exportReportCsv('servis')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-amber-500/30 text-amber-300 font-bold text-[11px]">📥 CSV Servis</button>
+                <button onclick="window.AZI.exportReportCsv('stok')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-emerald-500/30 text-emerald-300 font-bold text-[11px]">📥 CSV Stok Barang</button>
+                <button onclick="window.AZI.exportReportCsv('kas')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-indigo-500/30 text-indigo-300 font-bold text-[11px]">📥 CSV Arus Kas</button>
+              </div>
+            </div>
+          ` : ''}
 
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
             <div class="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
@@ -2159,7 +2324,7 @@
             </div>
             <div class="grid grid-cols-2 gap-2">
               <input id="usr-kontak" type="text" placeholder="No. WA / Kontak" class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white" />
-              <input id="usr-pass" type="text" required value="123" placeholder="Password Sementara *" class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-amber-300 font-mono-num" />
+              <input id="usr-pass" type="password" autocomplete="new-password" placeholder="Password Baru (Kosongkan jk edit)" class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-amber-300 font-mono-num" />
             </div>
             <select id="usr-jabatan" onchange="window.AZI.applyRolePreset(this.value)" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white">
               <option value="Kasir">Profil: Kasir</option>
@@ -2212,9 +2377,9 @@
                   <div class="text-[10px] text-slate-500">Menu: ${esc((u.akses && u.akses.menus ? u.akses.menus : []).join(', '))}</div>
                 </div>
                 <div class="flex flex-wrap items-center gap-1.5">
-                  <button onclick="window.AZI.editKaryawan('${esc(u.username)}')" class="px-2.5 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 font-bold text-[11px]">Edit</button>
-                  <button onclick="window.AZI.resetUserPassword('${esc(u.username)}')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[11px]">Reset Sandi</button>
-                  <button onclick="window.AZI.toggleUserActive('${esc(u.username)}')" class="px-2.5 py-1 rounded-lg ${u.aktif ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'} font-bold text-[11px]">
+                  <button onclick="window.AZI.editKaryawan('${escJs(u.username)}')" class="px-2.5 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 font-bold text-[11px]">Edit</button>
+                  <button onclick="window.AZI.resetUserPassword('${escJs(u.username)}')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[11px]">Reset Sandi</button>
+                  <button onclick="window.AZI.toggleUserActive('${escJs(u.username)}')" class="px-2.5 py-1 rounded-lg ${u.aktif ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'} font-bold text-[11px]">
                     ${u.aktif ? 'Aktif (Nonaktifkan?)' : 'Nonaktif (Aktifkan?)'}
                   </button>
                 </div>
@@ -2346,7 +2511,7 @@
                     <div class="font-bold text-white">${esc(a.nama)} <span class="text-[10px] text-sky-400">(${esc(a.tipe)})</span></div>
                     <div class="text-[10px] text-slate-400">ID: ${esc(a.id)} • Saldo Awal: <b class="font-mono-num text-emerald-300">${rp(a.saldoAwal)}</b></div>
                   </div>
-                  <button type="button" onclick="window.AZI.editAkunKas('${esc(a.id)}')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[10px]">Edit</button>
+                  <button type="button" onclick="window.AZI.editAkunKas('${escJs(a.id)}')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[10px]">Edit</button>
                 </div>
               `).join('')}
             </div>
@@ -2801,23 +2966,35 @@
       renderApp();
     },
 
-    fillDemoLogin(username) {
-      const u = document.getElementById('login-username');
+    toggleLoginPassword() {
       const p = document.getElementById('login-password');
-      if (u && p) {
-        u.value = username;
-        p.value = '123';
-      }
+      if (p) p.type = p.type === 'password' ? 'text' : 'password';
     },
 
     submitLogin(e) {
       e.preventDefault();
+      const errBox = document.getElementById('login-error-box');
+      const guard = getLoginGuard();
+      if (guard.lockUntil && Date.now() < guard.lockUntil) {
+        const sisaDetik = Math.ceil((guard.lockUntil - Date.now()) / 1000);
+        errBox.textContent = `Terlalu banyak percobaan login gagal. Coba lagi dalam ${sisaDetik} detik.`;
+        errBox.classList.remove('hidden');
+        return;
+      }
+
       const u = document.getElementById('login-username').value.trim();
       const p = document.getElementById('login-password').value;
-      const errBox = document.getElementById('login-error-box');
-      const found = db.karyawan.find((k) => k.username.toLowerCase() === u.toLowerCase() && k.password === p);
+      const found = db.karyawan.find((k) => k.username.toLowerCase() === u.toLowerCase() && verifyPassword(p, k.password));
       if (!found) {
-        errBox.textContent = 'Username atau password salah. Data toko tetap terkunci.';
+        const nextFails = (guard.fails || 0) + 1;
+        if (nextFails >= 5) {
+          setLoginGuard({ fails: 0, lockUntil: Date.now() + 60000 });
+          saveDatabase('LOGIN_LOCKED', u || 'UNKNOWN', '5x percobaan login gagal (kunci 60 detik)');
+          errBox.textContent = 'Terlalu banyak percobaan gagal. Login dikunci sementara selama 60 detik.';
+        } else {
+          setLoginGuard({ fails: nextFails, lockUntil: 0 });
+          errBox.textContent = `Username atau password salah (${nextFails}/5). Data toko tetap terkunci.`;
+        }
         errBox.classList.remove('hidden');
         return;
       }
@@ -2826,13 +3003,32 @@
         errBox.classList.remove('hidden');
         return;
       }
+
+      // Reset brute-force counter & auto-upgrade password lama (plaintext) ke SHA-256
+      setLoginGuard({ fails: 0, lockUntil: 0 });
+      if (!String(found.password || '').startsWith('sha256:')) {
+        found.password = hashPassword(p);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+      }
+
       saveSession(found);
       activeMenu = found.akses.menus[0] || 'dashboard';
+      saveDatabase('LOGIN_SUCCESS', found.username, `Login sebagai ${found.jabatan}`);
       showToast(`Selamat datang, ${found.nama} (${found.jabatan})!`, 'success');
       renderApp();
     },
 
     logout() {
+      // Bersihkan seluruh state sensitif dari memori saat keluar
+      posCart = [];
+      posServices = [];
+      posDiscount = 0;
+      posCustomer = '';
+      posContact = '';
+      posNote = '';
+      posPaidOverride = null;
+      editingServiceDraft = null;
+      lastReceiptBlePayload = null;
       saveSession(null);
       showToast('Anda telah keluar dari sesi Azi Cell.', 'info');
       renderApp();
@@ -2842,18 +3038,22 @@
       e.preventDefault();
       const p1 = document.getElementById('new-pass-1').value;
       const p2 = document.getElementById('new-pass-2').value;
+      if (p1.length < 4) {
+        showToast('Password baru minimal 4 karakter demi keamanan akun!', 'error');
+        return;
+      }
       if (p1 !== p2) {
         showToast('Konfirmasi password tidak cocok!', 'error');
         return;
       }
       const userObj = db.karyawan.find((k) => k.username === currentUser.username);
       if (userObj) {
-        userObj.password = p1;
+        userObj.password = hashPassword(p1);
         userObj.wajibGantiPassword = false;
-        saveDatabase('CHANGE_PASSWORD', userObj.username, 'Ganti password akun');
+        saveDatabase('CHANGE_PASSWORD', userObj.username, 'Ganti password akun (SHA-256)');
         saveSession(userObj);
         if (shouldCloseModal) closeModal();
-        showToast('Password baru berhasil disimpan!', 'success');
+        showToast('Password baru berhasil dienkripsi & disimpan!', 'success');
         renderApp();
       }
     },
@@ -2863,8 +3063,8 @@
         <div class="glass-card rounded-2xl p-6 max-w-sm w-full space-y-3">
           <h3 class="text-sm font-extrabold text-white">Ganti Password Akun</h3>
           <form onsubmit="window.AZI.submitNewPassword(event, true)" class="space-y-3 text-xs">
-            <input id="new-pass-1" type="password" required minlength="3" placeholder="Password Baru" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white" />
-            <input id="new-pass-2" type="password" required minlength="3" placeholder="Ulangi Password Baru" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white" />
+            <input id="new-pass-1" type="password" required minlength="4" placeholder="Password Baru" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white" />
+            <input id="new-pass-2" type="password" required minlength="4" placeholder="Ulangi Password Baru" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white" />
             <div class="flex gap-2">
               <button type="submit" class="flex-1 py-2.5 rounded-xl btn-luxury">Simpan</button>
               <button type="button" onclick="window.AZI.closeModal()" class="py-2.5 px-4 rounded-xl bg-slate-800 text-slate-300">Batal</button>
@@ -3396,7 +3596,7 @@
             <button onclick="window.AZI.closeModal()" class="text-slate-400 hover:text-white text-xl">&times;</button>
           </div>
 
-          <form onsubmit="window.AZI.saveServiceProgress(event, '${esc(d.no)}')" class="space-y-3.5">
+          <form onsubmit="window.AZI.saveServiceProgress(event, '${escJs(d.no)}')" class="space-y-3.5">
             <div class="grid grid-cols-2 gap-2">
               <div>
                 <label class="block text-[10px] text-slate-400 mb-1">Status Pengerjaan</label>
@@ -3733,17 +3933,23 @@
     },
 
     toggleBarangActive(sku) {
+      if (!requirePerm(canManageStock(), 'Akses ditolak: Hanya Pemilik/Gudang yang dapat mengubah status barang.')) return;
       const b = db.barang.find((x) => x.sku === sku);
       if (!b) return;
       b.aktif = !b.aktif;
       saveDatabase('TOGGLE_ITEM_ACTIVE', sku, `Aktif: ${b.aktif}`);
-      showToast(`Barang ${esc(sku)} sekarang ${b.aktif ? 'Aktif' : 'Nonaktif'}.`, 'info');
+      showToast(`Barang ${sku} sekarang ${b.aktif ? 'Aktif' : 'Nonaktif'}.`, 'info');
       renderApp();
     },
 
     submitMasterBarang(e) {
       e.preventDefault();
+      if (!requirePerm(canManageStock(), 'Akses ditolak: Hanya Pemilik/Gudang yang dapat mengelola master barang.')) return;
       const sku = document.getElementById('brg-sku').value.trim().toUpperCase();
+      if (!/^[A-Z0-9._-]{2,32}$/.test(sku)) {
+        showToast('Kode SKU hanya boleh huruf, angka, titik, garis bawah, atau strip (2-32 karakter).', 'error');
+        return;
+      }
       const barcode = (document.getElementById('brg-barcode').value || '').trim() || '-';
       const nama = document.getElementById('brg-nama').value.trim();
       const kategori = document.getElementById('brg-kategori').value.trim();
@@ -3797,6 +4003,7 @@
 
     submitStockAdjustment(e) {
       e.preventDefault();
+      if (!requirePerm(canManageStock(), 'Akses ditolak: Hanya Pemilik/Gudang yang dapat melakukan penyesuaian stok.')) return;
       const sku = document.getElementById('adj-sku').value;
       const jenis = document.getElementById('adj-jenis').value;
       const qty = Number(document.getElementById('adj-qty').value) || 0;
@@ -3866,6 +4073,7 @@
 
     submitPembelian(e) {
       e.preventDefault();
+      if (!requirePerm(currentUser.akses.menus.includes('pembelian'), 'Akses ditolak: Anda tidak memiliki izin mencatat pembelian.')) return;
       const pemasok = document.getElementById('pb-pemasok').value.trim();
       const refNota = document.getElementById('pb-ref').value.trim();
       const sku = document.getElementById('pb-sku').value;
@@ -3953,7 +4161,7 @@
         <div class="glass-card rounded-2xl p-6 max-w-sm w-full space-y-3 text-xs">
           <h3 class="text-sm font-extrabold text-white">Catat Pelunasan ${esc(noRef)}</h3>
           <p class="text-slate-300">Sisa Tagihan Saat Ini: <b class="text-rose-400 font-mono-num">${rp(sisa)}</b></p>
-          <form onsubmit="window.AZI.submitPelunasan(event, '${esc(jenis)}', '${esc(noRef)}', ${Number(sisa) || 0})" class="space-y-3">
+          <form onsubmit="window.AZI.submitPelunasan(event, '${escJs(jenis)}', '${escJs(noRef)}', ${Number(sisa) || 0})" class="space-y-3">
             <div>
               <label class="block text-[10px] text-slate-400 mb-1">Nominal Pembayaran (Rp) *</label>
               <input id="pay-nominal" type="number" min="1" max="${Number(sisa) || 0}" required value="${Number(sisa) || 0}" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-emerald-500/50 text-emerald-300 font-mono-num font-bold" />
@@ -4127,6 +4335,7 @@
 
     submitKasModal(e) {
       e.preventDefault();
+      if (!requirePerm(currentUser.akses.menus.includes('kas'), 'Akses ditolak: Anda tidak memiliki izin mencatat mutasi kas.')) return;
       const rawKat = document.getElementById('kas-kategori').value.split('|');
       const jenisRaw = rawKat[0];
       const kategori = rawKat[1];
@@ -4315,6 +4524,7 @@
     },
 
     editKaryawan(username) {
+      if (!requirePerm(currentUser.akses.kelola_karyawan, 'Akses ditolak: Hanya Pemilik yang dapat mengelola karyawan.')) return;
       const u = db.karyawan.find((k) => k.username === username);
       if (!u) return;
       const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
@@ -4323,7 +4533,8 @@
       setVal('usr-username', u.username);
       setVal('usr-kontak', u.kontak === '-' ? '' : (u.kontak || ''));
       setVal('usr-jabatan', u.jabatan);
-      setVal('usr-pass', u.password);
+      // Keamanan: jangan tampilkan password/hash lama di form; kosongkan kecuali ingin mengganti
+      setVal('usr-pass', '');
       setCb('usr-force-change', u.wajibGantiPassword);
       document.querySelectorAll('input[name="usr-menu"]').forEach((cb) => {
         cb.checked = (u.akses && Array.isArray(u.akses.menus)) ? u.akses.menus.includes(cb.value) : false;
@@ -4336,17 +4547,22 @@
       setCb('perm-cetak', u.akses.cetak_ulang);
       setCb('perm-ekspor', u.akses.ekspor_laporan);
       setCb('perm-karyawan', u.akses.kelola_karyawan);
-      showToast(`Mode edit akun @${esc(u.username)}. Ubah hak akses lalu klik Simpan.`, 'info');
+      showToast(`Mode edit akun @${u.username}. Kosongkan password jika tidak ingin mengganti sandi.`, 'info');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     },
 
     submitKaryawan(e) {
       e.preventDefault();
+      if (!requirePerm(currentUser.akses.kelola_karyawan, 'Akses ditolak: Hanya Pemilik yang dapat mengelola akun karyawan.')) return;
       const nama = document.getElementById('usr-nama').value.trim();
       const username = document.getElementById('usr-username').value.trim().toLowerCase();
+      if (!/^[a-z0-9._-]{3,32}$/.test(username)) {
+        showToast('Username harus 3-32 karakter (hanya huruf kecil, angka, titik, underscore, atau strip).', 'error');
+        return;
+      }
       const kontak = ((document.getElementById('usr-kontak') && document.getElementById('usr-kontak').value) || '').trim() || '-';
       const jabatan = document.getElementById('usr-jabatan').value;
-      const password = document.getElementById('usr-pass').value;
+      const rawPassword = document.getElementById('usr-pass').value;
       const wajibGantiPassword = document.getElementById('usr-force-change').checked;
 
       const selectedMenus = Array.from(document.querySelectorAll('input[name="usr-menu"]:checked')).map((cb) => cb.value);
@@ -4376,15 +4592,25 @@
         existing.nama = nama;
         existing.kontak = kontak;
         existing.jabatan = jabatan;
-        existing.password = password;
+        if (rawPassword && rawPassword.trim() !== '') {
+          if (rawPassword.length < 4) {
+            showToast('Password baru minimal 4 karakter!', 'error');
+            return;
+          }
+          existing.password = hashPassword(rawPassword);
+        }
         existing.wajibGantiPassword = wajibGantiPassword;
         existing.akses = akses;
-        showToast(`Akun & hak akses @${esc(username)} diperbarui!`, 'success');
+        showToast(`Akun & hak akses @${username} diperbarui!`, 'success');
       } else {
+        if (!rawPassword || rawPassword.length < 4) {
+          showToast('Akun baru wajib diisi password sementara minimal 4 karakter!', 'error');
+          return;
+        }
         db.karyawan.push({
           id: nextSeqNo('USR', db.karyawan, 'id', 2),
           username,
-          password,
+          password: hashPassword(rawPassword),
           nama,
           jabatan,
           kontak,
@@ -4393,13 +4619,14 @@
           akses,
           dibuatPada: nowStr()
         });
-        showToast(`Akun karyawan @${esc(username)} berhasil ditambahkan!`, 'success');
+        showToast(`Akun karyawan @${username} berhasil ditambahkan!`, 'success');
       }
       saveDatabase('UPDATE_USER_ACCESS', username, jabatan);
       renderApp();
     },
 
     toggleUserActive(username) {
+      if (!requirePerm(currentUser.akses.kelola_karyawan, 'Akses ditolak: Hanya Pemilik yang dapat mengubah status akun.')) return;
       const target = db.karyawan.find((u) => u.username === username);
       if (!target) return;
       const activeOwners = db.karyawan.filter((u) => u.jabatan === 'Pemilik' && u.aktif);
@@ -4409,17 +4636,18 @@
       }
       target.aktif = !target.aktif;
       saveDatabase('TOGGLE_USER_ACTIVE', username, `Aktif: ${target.aktif}`);
-      showToast(`Status akun @${esc(username)} diubah menjadi ${target.aktif ? 'Aktif' : 'Nonaktif'}.`, 'info');
+      showToast(`Status akun @${username} diubah menjadi ${target.aktif ? 'Aktif' : 'Nonaktif'}.`, 'info');
       renderApp();
     },
 
     resetUserPassword(username) {
+      if (!requirePerm(currentUser.akses.kelola_karyawan, 'Akses ditolak: Hanya Pemilik yang dapat mereset sandi karyawan.')) return;
       const target = db.karyawan.find((u) => u.username === username);
       if (!target) return;
-      target.password = '123';
+      target.password = hashPassword('1234');
       target.wajibGantiPassword = true;
-      saveDatabase('RESET_PASSWORD', username, 'Reset ke 123 & wajib ganti saat login');
-      showToast(`Password @${esc(username)} direset ke "123" (Wajib ganti saat login).`, 'success');
+      saveDatabase('RESET_PASSWORD', username, 'Reset ke sandi sementara & wajib ganti saat login');
+      showToast(`Password @${username} direset ke "1234" (Wajib ganti saat login pertama).`, 'success');
     },
 
     // ========================================================================
@@ -4427,8 +4655,13 @@
     // ========================================================================
     saveOwnerDatabaseConfig(e) {
       e.preventDefault();
+      if (!requirePerm(currentUser.akses.menus.includes('pengaturan'), 'Akses ditolak untuk mengubah konfigurasi cloud.')) return;
       const rawUrl = document.getElementById('cfg-sheet-url').value.trim();
       const gasUrl = document.getElementById('cfg-gas-url').value.trim();
+      if (gasUrl && !/^https:\/\/script\.google\.com\//i.test(gasUrl)) {
+        showToast('URL Web App Apps Script harus dimulai dengan https://script.google.com/', 'error');
+        return;
+      }
       const match = rawUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
       db.config.spreadsheetUrl = rawUrl;
       db.config.spreadsheetId = match ? match[1] : rawUrl;
@@ -4439,6 +4672,7 @@
     },
 
     async triggerRemoteSheetSetup() {
+      if (!requirePerm(currentUser.akses.menus.includes('pengaturan'), 'Akses ditolak.')) return;
       if (!db.config.gasWebAppUrl) {
         showToast('Isi URL Web App Google Apps Script terlebih dahulu, atau jalankan setupDatabaseOtomatis() di Code.gs!', 'warn');
         return;
@@ -4449,6 +4683,7 @@
     },
 
     async pushAllToSheets() {
+      if (!requirePerm(currentUser.akses.menus.includes('pengaturan'), 'Akses ditolak.')) return;
       if (!db.config.gasWebAppUrl) {
         showToast('Isi URL Web App Google Apps Script di atas terlebih dahulu!', 'warn');
         return;
@@ -4458,10 +4693,14 @@
       renderApp();
     },
 
-    pullFromGoogleSheets,
+    pullFromGoogleSheets() {
+      if (!requirePerm(currentUser.akses.menus.includes('pengaturan'), 'Akses ditolak.')) return;
+      return pullFromGoogleSheets({ silent: false });
+    },
 
     saveStoreProfile(e) {
       e.preventDefault();
+      if (!requirePerm(currentUser.akses.menus.includes('pengaturan'), 'Akses ditolak.')) return;
       db.config.namaToko = document.getElementById('cfg-nama').value.trim();
       db.config.kontak = document.getElementById('cfg-kontak').value.trim();
       db.config.tagline = (document.getElementById('cfg-tagline').value || '').trim();
@@ -4474,6 +4713,7 @@
     },
 
     editAkunKas(accId) {
+      if (!requirePerm(currentUser.akses.menus.includes('pengaturan'), 'Akses ditolak.')) return;
       const a = db.akunKas.find((x) => x.id === accId);
       if (!a) return;
       const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
@@ -4481,11 +4721,12 @@
       setVal('acc-nama', a.nama);
       setVal('acc-tipe', a.tipe);
       setVal('acc-saldo', Number(a.saldoAwal) || 0);
-      showToast(`Mode edit akun kas "${esc(a.nama)}". Ubah data lalu klik Simpan.`, 'info');
+      showToast(`Mode edit akun kas "${a.nama}". Ubah data lalu klik Simpan.`, 'info');
     },
 
     submitAkunKas(e) {
       e.preventDefault();
+      if (!requirePerm(currentUser.akses.menus.includes('pengaturan'), 'Akses ditolak.')) return;
       const accId = (document.getElementById('acc-id').value || '').trim();
       const nama = document.getElementById('acc-nama').value.trim();
       const tipe = document.getElementById('acc-tipe').value;
@@ -4498,17 +4739,18 @@
         existing.tipe = tipe;
         existing.saldoAwal = saldoAwal;
         saveDatabase('UPDATE_CASH_ACCOUNT', existing.id, `${nama} (${rp(saldoAwal)})`);
-        showToast(`Akun kas "${esc(nama)}" berhasil diperbarui!`, 'success');
+        showToast(`Akun kas "${nama}" berhasil diperbarui!`, 'success');
       } else {
         const newId = 'ACC-' + nama.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) + '-' + String(db.akunKas.length + 1);
         db.akunKas.push({ id: newId, nama, tipe, saldoAwal, aktif: true });
         saveDatabase('CREATE_CASH_ACCOUNT', newId, `${nama} (${rp(saldoAwal)})`);
-        showToast(`Akun kas baru "${esc(nama)}" ditambahkan!`, 'success');
+        showToast(`Akun kas baru "${nama}" ditambahkan!`, 'success');
       }
       renderApp();
     },
 
     exportBackupJson() {
+      if (!requirePerm(currentUser.akses.menus.includes('pengaturan'), 'Akses ditolak.')) return;
       const jsonStr = JSON.stringify(db, null, 2);
       const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
@@ -4521,13 +4763,19 @@
     },
 
     importBackupJson(event) {
+      if (!requirePerm(currentUser.akses.menus.includes('pengaturan'), 'Akses ditolak.')) return;
       const file = event.target && event.target.files && event.target.files[0];
       if (!file) return;
+      if (file.size > 10 * 1024 * 1024) {
+        showToast('File backup terlalu besar (maksimal 10 MB).', 'error');
+        return;
+      }
       const reader = new FileReader();
       reader.onload = (ev) => {
         try {
-          const parsed = JSON.parse(String(ev.target.result || '{}'));
-          if (!parsed || !Array.isArray(parsed.karyawan) || !Array.isArray(parsed.barang)) {
+          const parsedRaw = JSON.parse(String(ev.target.result || '{}'));
+          const parsed = stripProtoKeys(parsedRaw);
+          if (!parsed || !Array.isArray(parsed.karyawan) || !Array.isArray(parsed.barang) || parsed.karyawan.length === 0) {
             showToast('File JSON tidak valid untuk database Azi Cell!', 'error');
             return;
           }
@@ -4744,46 +4992,432 @@
       this.printViaBluetooth(sample);
     },
 
-    exportReportCsv() {
+    // ========================================================================
+    // EKSPOR LAPORAN RAPI SIAP CETAK (EXCEL 5-SHEET .XLS + CSV RAPI sep=;)
+    // ========================================================================
+    exportReportExcel() {
+      if (!requirePerm(currentUser.akses.ekspor_laporan, 'Akses ditolak: Anda tidak memiliki izin mengekspor laporan.')) return;
       const m = calculateFinancialMetrics();
-      const csvCell = (val) => `"${String(val === null || val === undefined ? '' : val).replace(/"/g, '""')}"`;
-      const rows = [
-        ['LAPORAN KEUANGAN AZI CELL', `Periode: ${filterDateStart || 'Awal'} s/d ${filterDateEnd || 'Sekarang'}`],
-        ['Omzet Penjualan Barang', m.omzetPenjualanBarang],
-        ['Omzet Jasa Pasang (POS)', m.omzetJasaPenjualan],
-        ['Omzet Jasa Servis', m.omzetJasaServis],
-        ['Omzet Spare Part Servis', m.omzetSparepartServis],
-        ['Retur Penjualan', -m.totalReturOmzet],
-        ['Total Omzet Bersih', m.omzetBersih],
-        ['Total HPP / Modal Terjual', m.totalHpp],
-        ['Laba Kotor', m.labaKotor],
-        ['Biaya Operasional', m.biayaOperasional],
-        ['Laba Bersih Operasional', m.labaBersihOperasional],
-        ['Nilai Persediaan Barang', m.nilaiPersediaan],
-        ['Total Piutang Pelanggan', m.totalPiutang],
-        ['Total Utang Pemasok', m.totalUtang],
-        [],
-        ['=== PENJUALAN ==='],
-        ['No_Transaksi', 'Waktu', 'Status_Dokumen', 'Pelanggan', 'Total_Jasa', 'Diskon', 'Total_Akhir', 'Laba_Kotor', 'Status_Bayar', 'Petugas'],
-        ...db.penjualan
-          .filter((p) => isInDateFilter(p.tanggalJam))
-          .map((p) => [p.no, p.tanggalJam, p.statusDokumen, p.pelanggan, p.totalJasa || 0, p.diskon || 0, p.totalAkhir, p.labaKotor, p.statusBayar, p.petugas]),
-        [],
-        ['=== SERVIS ==='],
-        ['No_Servis', 'Tanggal_Terima', 'Pelanggan', 'Perangkat', 'Status_Kerja', 'Total_Sparepart', 'Biaya_Jasa', 'Diskon', 'Total_Final', 'Sudah_Bayar', 'Sisa_Tagihan', 'Status_Bayar'],
-        ...db.servis
-          .filter((s) => isInDateFilter(s.tanggalTerima))
-          .map((s) => [s.no, s.tanggalTerima, s.pelanggan, s.merekModel, s.statusPengerjaan, s.totalSparepart, s.biayaJasa, s.diskon || 0, s.totalBiayaFinal, s.totalTerbayar, s.sisaTagihan, s.statusBayar])
+      const balances = getAccountBalances();
+      const akses = currentUser.akses;
+      const periodeLabel = `${filterDateStart || 'Awal'} s/d ${filterDateEnd || 'Sekarang'}`;
+
+      const xmlEsc = (val) => {
+        let s = String(val === null || val === undefined ? '' : val);
+        const tr = s.trim();
+        // Netralkan Formula Injection Excel pada teks user
+        if (tr !== '' && tr !== '-' && (/^[=+@\t\r]/.test(s) || (/^-/.test(s) && !/^-\d+(\.\d+)?$/.test(tr)))) {
+          s = "'" + s;
+        }
+        return s
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&apos;');
+      };
+
+      const cellStr = (val, style = 'sData') => `<Cell ss:StyleID="${style}"><Data ss:Type="String">${xmlEsc(val)}</Data></Cell>`;
+      const cellNum = (val, style = 'sCurr') => `<Cell ss:StyleID="${style}"><Data ss:Type="Number">${Number(val) || 0}</Data></Cell>`;
+      const buildSheet = (name, colWidths, rowsXml) => {
+        const colsXml = colWidths.map((w) => `<Column ss:AutoFitWidth="0" ss:Width="${w}"/>`).join('');
+        return `<Worksheet ss:Name="${xmlEsc(name)}"><Table>${colsXml}${rowsXml.join('')}</Table></Worksheet>`;
+      };
+      const hdrRow = (headers) => `<Row ss:Height="24">${headers.map((h) => cellStr(h, 'sHeader')).join('')}</Row>`;
+      const titleRow = (text, span) => `<Row ss:Height="26"><Cell ss:MergeAcross="${span - 1}" ss:StyleID="sTitle"><Data ss:Type="String">${xmlEsc(text)}</Data></Cell></Row>`;
+      const subTitleRow = (text, span) => `<Row ss:Height="19"><Cell ss:MergeAcross="${span - 1}" ss:StyleID="sSubTitle"><Data ss:Type="String">${xmlEsc(text)}</Data></Cell></Row>`;
+      const emptyRow = () => `<Row ss:Height="10"></Row>`;
+
+      // 1. SHEET RINGKASAN KEUANGAN
+      const ringRows = [
+        titleRow(`LAPORAN KEUANGAN & LABA RUGI - ${db.config.namaToko}`, 3),
+        subTitleRow(`Periode: ${periodeLabel} | Dicetak: ${nowStr()} | Petugas: ${currentUser.nama}`, 3),
+        emptyRow(),
+        hdrRow(['Kategori / Pos Keuangan', 'Keterangan', 'Nominal (Rp)']),
+        `<Row>${cellStr('OMZET', 'sCat')}${cellStr('Penjualan Barang (POS)')}${cellNum(m.omzetPenjualanBarang)}</Row>`,
+        `<Row>${cellStr('OMZET', 'sCat')}${cellStr('Jasa Pasang (POS Kasir)')}${cellNum(m.omzetJasaPenjualan)}</Row>`,
+        `<Row>${cellStr('OMZET', 'sCat')}${cellStr('Pendapatan Jasa Servis')}${cellNum(m.omzetJasaServis)}</Row>`,
+        `<Row>${cellStr('OMZET', 'sCat')}${cellStr('Spare Part Servis')}${cellNum(m.omzetSparepartServis)}</Row>`,
+        `<Row>${cellStr('KOREKSI', 'sCat')}${cellStr('Retur Penjualan (Pengurang)')}${cellNum(-m.totalReturOmzet)}</Row>`,
+        `<Row ss:Height="22">${cellStr('TOTAL', 'sTotalLabel')}${cellStr('Total Omzet Bersih', 'sTotalLabel')}${cellNum(m.omzetBersih, 'sTotalCurr')}</Row>`,
+        emptyRow()
       ];
-      const csv = '\uFEFF' + rows.map((r) => r.map(csvCell).join(',')).join('\n');
+      if (akses.lihat_laba) {
+        ringRows.push(
+          `<Row>${cellStr('LABA RUGI', 'sCat')}${cellStr('Total HPP / Modal Barang Terjual')}${cellNum(-m.totalHpp)}</Row>`,
+          `<Row ss:Height="21">${cellStr('LABA RUGI', 'sTotalLabel')}${cellStr('Laba Kotor', 'sTotalLabel')}${cellNum(m.labaKotor, 'sTotalCurr')}</Row>`,
+          `<Row>${cellStr('BIAYA OPS', 'sCat')}${cellStr('Biaya Operasional Toko')}${cellNum(-m.biayaOperasional)}</Row>`,
+          `<Row ss:Height="22">${cellStr('LABA BERSIH', 'sTotalLabel')}${cellStr('Laba Bersih Operasional', 'sTotalLabel')}${cellNum(m.labaBersihOperasional, 'sTotalCurr')}</Row>`,
+          emptyRow()
+        );
+      }
+      if (akses.lihat_modal) {
+        ringRows.push(`<Row>${cellStr('ASET STOK', 'sCat')}${cellStr('Nilai Persediaan Barang di Rak')}${cellNum(m.nilaiPersediaan)}</Row>`);
+      }
+      ringRows.push(
+        `<Row>${cellStr('MODAL', 'sCat')}${cellStr('Setoran Modal Pemilik')}${cellNum(m.modalDisetor)}</Row>`,
+        `<Row>${cellStr('MODAL', 'sCat')}${cellStr('Penarikan Modal / Prive Pemilik')}${cellNum(m.modalDitarik)}</Row>`,
+        `<Row>${cellStr('TAGIHAN', 'sCat')}${cellStr('Total Piutang Pelanggan (Belum Lunas)')}${cellNum(m.totalPiutang)}</Row>`,
+        `<Row>${cellStr('TAGIHAN', 'sCat')}${cellStr('Total Utang Pemasok (Belum Lunas)')}${cellNum(m.totalUtang)}</Row>`,
+        emptyRow(),
+        hdrRow(['ID Akun Kas', 'Nama Akun Kas / Bank', 'Saldo Akhir (Rp)']),
+        ...balances.map((a) => `<Row>${cellStr(a.id, 'sCenter')}${cellStr(`${a.nama} (${a.tipe})`)}${cellNum(a.saldoAkhir)}</Row>`),
+        `<Row ss:Height="22">${cellStr('TOTAL KAS', 'sTotalLabel')}${cellStr('Total Seluruh Saldo Kas & Bank', 'sTotalLabel')}${cellNum(balances.reduce((s, a) => s + a.saldoAkhir, 0), 'sTotalCurr')}</Row>`
+      );
+
+      // 2. SHEET PENJUALAN
+      const salesList = db.penjualan.filter((p) => (akses.semua_transaksi || p.petugas === currentUser.username) && isInDateFilter(p.tanggalJam));
+      const salesHeaders = ['No Transaksi', 'Tanggal & Jam', 'Dokumen', 'Pelanggan', 'Kontak', 'Rincian Barang', 'Rincian Jasa Pasang', 'Subtotal Barang', 'Total Jasa', 'Diskon', 'Total Akhir'];
+      const salesWidths = [85, 105, 65, 115, 95, 190, 150, 95, 90, 80, 100];
+      if (akses.lihat_laba) {
+        salesHeaders.push('HPP / Modal', 'Laba Kotor');
+        salesWidths.push(95, 95);
+      }
+      salesHeaders.push('Metode', 'Uang Diterima', 'Kembalian', 'Terbayar', 'Sisa Piutang', 'Status Bayar', 'Petugas', 'Catatan');
+      salesWidths.push(70, 95, 85, 95, 95, 85, 75, 140);
+
+      const salesRows = [
+        titleRow(`DATA TRANSAKSI PENJUALAN (+ JASA PASANG) - ${db.config.namaToko}`, salesHeaders.length),
+        subTitleRow(`Periode: ${periodeLabel} | Jumlah Transaksi: ${salesList.length}`, salesHeaders.length),
+        emptyRow(),
+        hdrRow(salesHeaders),
+        ...salesList.map((p) => {
+          const items = Array.isArray(p.items) ? p.items : [];
+          const jasa = Array.isArray(p.jasaItems) ? p.jasaItems : [];
+          const subBrg = items.reduce((s, i) => s + (Number(i.qty) || 0) * (Number(i.hargaJual) || 0), 0);
+          const brgTxt = items.map((i) => `${i.nama} (${i.qty}x ${rp(i.hargaJual)})`).join('; ') || '-';
+          const jasaTxt = jasa.map((j) => `${j.nama} (${rp(j.biaya)})`).join('; ') || '-';
+          const cells = [
+            cellStr(p.no, 'sCenter'), cellStr(p.tanggalJam, 'sCenter'), cellStr(p.statusDokumen, 'sCenter'),
+            cellStr(p.pelanggan), cellStr(p.kontak || '-'), cellStr(brgTxt), cellStr(jasaTxt),
+            cellNum(subBrg), cellNum(p.totalJasa || 0), cellNum(p.diskon || 0), cellNum(p.totalAkhir)
+          ];
+          if (akses.lihat_laba) {
+            cells.push(cellNum(p.totalModalHistoris || 0), cellNum(p.labaKotor || 0));
+          }
+          cells.push(
+            cellStr(p.metodeBayar, 'sCenter'), cellNum(p.uangDiterima || 0), cellNum(p.kembalian || 0),
+            cellNum(p.jumlahTerbayar || 0), cellNum(p.sisaPiutang || 0), cellStr(p.statusBayar, 'sCenter'),
+            cellStr(p.petugas, 'sCenter'), cellStr(p.catatan || '-')
+          );
+          return `<Row>${cells.join('')}</Row>`;
+        })
+      ];
+
+      // 3. SHEET SERVIS
+      const srvList = db.servis.filter((s) => (akses.semua_transaksi || s.teknisi === currentUser.username || s.petugasTerima === currentUser.username) && isInDateFilter(s.tanggalTerima));
+      const srvHeaders = ['No Servis', 'Tgl Terima', 'Tgl Selesai', 'Pelanggan', 'Kontak', 'Perangkat & Model', 'Jenis Servis', 'Status Kerja', 'Rincian Sparepart', 'Total Part', 'Rincian Jasa', 'Biaya Jasa', 'Diskon', 'Total Final', 'Terbayar/DP', 'Sisa Tagihan', 'Status Bayar', 'Teknisi'];
+      const srvWidths = [80, 100, 100, 115, 95, 130, 120, 80, 175, 90, 150, 90, 80, 95, 95, 95, 85, 75];
+      const srvRows = [
+        titleRow(`DATA SERVIS PERANGKAT - ${db.config.namaToko}`, srvHeaders.length),
+        subTitleRow(`Periode: ${periodeLabel} | Jumlah Unit Servis: ${srvList.length}`, srvHeaders.length),
+        emptyRow(),
+        hdrRow(srvHeaders),
+        ...srvList.map((s) => {
+          const partTxt = (s.spareparts || []).map((sp) => `${sp.nama} (${sp.qty}x ${rp(sp.hargaJual)})`).join('; ') || '-';
+          const jasaTxt = (s.jasaItems && s.jasaItems.length ? s.jasaItems.map((j) => `${j.nama} (${rp(j.biaya)})`).join('; ') : (s.namaJasa || '-'));
+          return `<Row>${[
+            cellStr(s.no, 'sCenter'), cellStr(s.tanggalTerima, 'sCenter'), cellStr(s.tanggalSelesai || '-', 'sCenter'),
+            cellStr(s.pelanggan), cellStr(s.kontak || '-'), cellStr(`${s.perangkat} - ${s.merekModel}`),
+            cellStr(s.jenisServis), cellStr(s.statusPengerjaan, 'sCenter'), cellStr(partTxt),
+            cellNum(s.totalSparepart || 0), cellStr(jasaTxt), cellNum(s.biayaJasa || 0),
+            cellNum(s.diskon || 0), cellNum(s.totalBiayaFinal || 0), cellNum(s.totalTerbayar || 0),
+            cellNum(s.sisaTagihan || 0), cellStr(s.statusBayar, 'sCenter'), cellStr(s.teknisi || '-', 'sCenter')
+          ].join('')}</Row>`;
+        })
+      ];
+
+      // 4. SHEET STOK BARANG
+      const stokHeaders = ['Kode SKU', 'Barcode', 'Nama Barang', 'Kategori', 'Satuan'];
+      const stokWidths = [85, 90, 195, 95, 55];
+      if (akses.lihat_modal) { stokHeaders.push('Harga Modal'); stokWidths.push(95); }
+      stokHeaders.push('Harga Jual', 'Stok Awal', 'Masuk', 'Keluar', 'Stok Akhir', 'Stok Min');
+      stokWidths.push(95, 65, 60, 60, 70, 65);
+      if (akses.lihat_modal) { stokHeaders.push('Nilai Persediaan'); stokWidths.push(110); }
+      stokHeaders.push('Pemasok', 'Status');
+      stokWidths.push(115, 65);
+
+      const stokRows = [
+        titleRow(`DAFTAR PERSEDIAAN & STOK BARANG - ${db.config.namaToko}`, stokHeaders.length),
+        subTitleRow(`Dicetak: ${nowStr()} | Total SKU: ${db.barang.length}`, stokHeaders.length),
+        emptyRow(),
+        hdrRow(stokHeaders),
+        ...db.barang.map((b) => {
+          const akhir = getStokAkhir(b);
+          const cells = [cellStr(b.sku, 'sCenter'), cellStr(b.barcode || '-', 'sCenter'), cellStr(b.nama), cellStr(b.kategori), cellStr(b.satuan, 'sCenter')];
+          if (akses.lihat_modal) cells.push(cellNum(b.hargaModal || 0));
+          cells.push(
+            cellNum(b.hargaJual || 0),
+            cellNum(b.stokAwal || 0, 'sInt'), cellNum(b.masuk || 0, 'sInt'),
+            cellNum(b.keluar || 0, 'sInt'), cellNum(akhir, 'sInt'), cellNum(b.stokMinimum || 0, 'sInt')
+          );
+          if (akses.lihat_modal) cells.push(cellNum(akhir * (Number(b.hargaModal) || 0)));
+          cells.push(cellStr(b.pemasok || '-'), cellStr(b.aktif ? 'Aktif' : 'Nonaktif', 'sCenter'));
+          return `<Row>${cells.join('')}</Row>`;
+        })
+      ];
+
+      // 5. SHEET ARUS KAS & MODAL
+      const kasList = db.kasModal.filter((k) => isInDateFilter(k.tanggalJam));
+      const kasHeaders = ['ID Kas', 'Waktu', 'Jenis Arus', 'Kategori', 'Akun Asal', 'Akun Tujuan', 'Nominal (Rp)', 'No Referensi', 'Keterangan', 'Petugas'];
+      const kasWidths = [90, 105, 70, 145, 95, 95, 105, 85, 200, 75];
+      const kasRows = [
+        titleRow(`BUKU ARUS KAS & MODAL - ${db.config.namaToko}`, kasHeaders.length),
+        subTitleRow(`Periode: ${periodeLabel} | Jumlah Mutasi: ${kasList.length}`, kasHeaders.length),
+        emptyRow(),
+        hdrRow(kasHeaders),
+        ...kasList.map((k) => `<Row>${[
+          cellStr(k.id, 'sCenter'), cellStr(k.tanggalJam, 'sCenter'), cellStr(k.jenis, 'sCenter'),
+          cellStr(k.kategori), cellStr(k.akunAsal || '-', 'sCenter'), cellStr(k.akunTujuan || '-', 'sCenter'),
+          cellNum(k.nominal || 0), cellStr(k.noRef || '-', 'sCenter'), cellStr(k.keterangan || '-'), cellStr(k.petugas || '-', 'sCenter')
+        ].join('')}</Row>`)
+      ];
+
+      const workbookXml = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+   <Alignment ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#0F172A"/>
+  </Style>
+  <Style ss:ID="sTitle">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="13" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#0F172A" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="sSubTitle">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="9" ss:Italic="1" ss:Color="#334155"/>
+   <Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="sHeader">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#1E293B" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#F59E0B"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#334155"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#334155"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#334155"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="sData">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center" ss:WrapText="1"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="sCenter">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="sCat">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#0369A1"/>
+   <Interior ss:Color="#F0F9FF" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="sCurr">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <NumberFormat ss:Format="&quot;Rp&quot;#,##0;&quot;-Rp&quot;#,##0;&quot;Rp0&quot;"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="sInt">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <NumberFormat ss:Format="#,##0"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="sTotalLabel">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#0F172A"/>
+   <Interior ss:Color="#FEF3C7" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#F59E0B"/>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#F59E0B"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="sTotalCurr">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#0F172A"/>
+   <Interior ss:Color="#FEF3C7" ss:Pattern="Solid"/>
+   <NumberFormat ss:Format="&quot;Rp&quot;#,##0;&quot;-Rp&quot;#,##0;&quot;Rp0&quot;"/>
+   <Borders>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#F59E0B"/>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#F59E0B"/>
+   </Borders>
+  </Style>
+ </Styles>
+ ${buildSheet('Ringkasan_Keuangan', [110, 260, 130], ringRows)}
+ ${buildSheet('Penjualan', salesWidths, salesRows)}
+ ${buildSheet('Servis', srvWidths, srvRows)}
+ ${buildSheet('Stok_Barang', stokWidths, stokRows)}
+ ${buildSheet('Arus_Kas_Modal', kasWidths, kasRows)}
+</Workbook>`;
+
+      const blob = new Blob([workbookXml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Laporan_Rapi_AziCell_${todayStr()}.xls`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      saveDatabase('EXPORT_EXCEL', '5_SHEETS', `Periode ${periodeLabel}`);
+      showToast('Laporan Excel Rapi (5 Sheet siap cetak) berhasil diunduh!', 'success');
+    },
+
+    exportReportCsv(scope = 'lengkap') {
+      if (!requirePerm(currentUser.akses.ekspor_laporan, 'Akses ditolak: Anda tidak memiliki izin mengekspor laporan.')) return;
+      const m = calculateFinancialMetrics();
+      const balances = getAccountBalances();
+      const akses = currentUser.akses;
+      const periodeLabel = `${filterDateStart || 'Awal'} s/d ${filterDateEnd || 'Sekarang'}`;
+
+      // Sanitasi CSV: bersih ASCII agar directive sep=; dibaca 100% akurat oleh Excel Indonesia/EN + anti Formula Injection!
+      const csvCell = (val) => {
+        if (typeof val === 'number' && !isNaN(val)) return String(val);
+        let s = String(val === null || val === undefined ? '' : val)
+          .replace(/\r?\n/g, ' ')
+          .replace(/[\u2013\u2014]/g, '-')
+          .replace(/\u2022/g, '|')
+          .replace(/[^\x20-\x7E]/g, ' ');
+        const tr = s.trim();
+        if (tr !== '' && tr !== '-' && (/^[=+@\t\r]/.test(s) || (/^-/.test(s) && !/^-\d+(\.\d+)?$/.test(tr)))) {
+          s = "'" + s;
+        }
+        return `"${s.replace(/"/g, '""')}"`;
+      };
+
+      let rows = [];
+      let fileSuffix = 'Ringkasan';
+
+      if (scope === 'penjualan') {
+        fileSuffix = 'Penjualan';
+        const headers = ['No Transaksi', 'Tanggal Jam', 'Status Dokumen', 'Pelanggan', 'Kontak', 'Rincian Barang', 'Rincian Jasa Pasang', 'Subtotal Barang (Rp)', 'Total Jasa (Rp)', 'Diskon (Rp)', 'Total Akhir (Rp)'];
+        if (akses.lihat_laba) headers.push('HPP Modal (Rp)', 'Laba Kotor (Rp)');
+        headers.push('Metode Bayar', 'Uang Diterima (Rp)', 'Kembalian (Rp)', 'Terbayar (Rp)', 'Sisa Piutang (Rp)', 'Status Bayar', 'Petugas', 'Catatan');
+        rows.push(headers);
+        db.penjualan
+          .filter((p) => (akses.semua_transaksi || p.petugas === currentUser.username) && isInDateFilter(p.tanggalJam))
+          .forEach((p) => {
+            const items = Array.isArray(p.items) ? p.items : [];
+            const jasa = Array.isArray(p.jasaItems) ? p.jasaItems : [];
+            const subBrg = items.reduce((s, i) => s + (Number(i.qty) || 0) * (Number(i.hargaJual) || 0), 0);
+            const r = [
+              p.no, p.tanggalJam, p.statusDokumen, p.pelanggan, p.kontak || '-',
+              items.map((i) => `${i.nama} (${i.qty}x ${rp(i.hargaJual)})`).join(' | ') || '-',
+              jasa.map((j) => `${j.nama} (${rp(j.biaya)})`).join(' | ') || '-',
+              subBrg, Number(p.totalJasa) || 0, Number(p.diskon) || 0, Number(p.totalAkhir) || 0
+            ];
+            if (akses.lihat_laba) r.push(Number(p.totalModalHistoris) || 0, Number(p.labaKotor) || 0);
+            r.push(p.metodeBayar, Number(p.uangDiterima) || 0, Number(p.kembalian) || 0, Number(p.jumlahTerbayar) || 0, Number(p.sisaPiutang) || 0, p.statusBayar, p.petugas, p.catatan || '-');
+            rows.push(r);
+          });
+      } else if (scope === 'servis') {
+        fileSuffix = 'Servis';
+        rows.push(['No Servis', 'Tgl Terima', 'Tgl Selesai', 'Pelanggan', 'Kontak', 'Perangkat Model', 'Jenis Servis', 'Status Kerja', 'Rincian Sparepart', 'Total Part (Rp)', 'Rincian Jasa', 'Biaya Jasa (Rp)', 'Diskon (Rp)', 'Total Final (Rp)', 'Terbayar DP (Rp)', 'Sisa Tagihan (Rp)', 'Status Bayar', 'Teknisi']);
+        db.servis
+          .filter((s) => (akses.semua_transaksi || s.teknisi === currentUser.username || s.petugasTerima === currentUser.username) && isInDateFilter(s.tanggalTerima))
+          .forEach((s) => {
+            const partTxt = (s.spareparts || []).map((sp) => `${sp.nama} (${sp.qty}x ${rp(sp.hargaJual)})`).join(' | ') || '-';
+            const jasaTxt = (s.jasaItems && s.jasaItems.length ? s.jasaItems.map((j) => `${j.nama} (${rp(j.biaya)})`).join(' | ') : (s.namaJasa || '-'));
+            rows.push([
+              s.no, s.tanggalTerima, s.tanggalSelesai || '-', s.pelanggan, s.kontak || '-',
+              `${s.perangkat} - ${s.merekModel}`, s.jenisServis, s.statusPengerjaan, partTxt,
+              Number(s.totalSparepart) || 0, jasaTxt, Number(s.biayaJasa) || 0, Number(s.diskon) || 0,
+              Number(s.totalBiayaFinal) || 0, Number(s.totalTerbayar) || 0, Number(s.sisaTagihan) || 0,
+              s.statusBayar, s.teknisi || '-'
+            ]);
+          });
+      } else if (scope === 'stok') {
+        fileSuffix = 'Stok_Barang';
+        const headers = ['Kode SKU', 'Barcode', 'Nama Barang', 'Kategori', 'Satuan'];
+        if (akses.lihat_modal) headers.push('Harga Modal (Rp)');
+        headers.push('Harga Jual (Rp)', 'Stok Awal', 'Masuk', 'Keluar', 'Stok Akhir', 'Stok Min');
+        if (akses.lihat_modal) headers.push('Nilai Persediaan (Rp)');
+        headers.push('Pemasok', 'Status');
+        rows.push(headers);
+        db.barang.forEach((b) => {
+          const akhir = getStokAkhir(b);
+          const r = [b.sku, b.barcode || '-', b.nama, b.kategori, b.satuan];
+          if (akses.lihat_modal) r.push(Number(b.hargaModal) || 0);
+          r.push(Number(b.hargaJual) || 0, Number(b.stokAwal) || 0, Number(b.masuk) || 0, Number(b.keluar) || 0, akhir, Number(b.stokMinimum) || 0);
+          if (akses.lihat_modal) r.push(akhir * (Number(b.hargaModal) || 0));
+          r.push(b.pemasok || '-', b.aktif ? 'Aktif' : 'Nonaktif');
+          rows.push(r);
+        });
+      } else if (scope === 'kas') {
+        fileSuffix = 'Arus_Kas';
+        rows.push(['ID Kas', 'Waktu', 'Jenis Arus', 'Kategori', 'Akun Asal', 'Akun Tujuan', 'Nominal (Rp)', 'No Referensi', 'Keterangan', 'Petugas']);
+        db.kasModal
+          .filter((k) => isInDateFilter(k.tanggalJam))
+          .forEach((k) => {
+            rows.push([k.id, k.tanggalJam, k.jenis, k.kategori, k.akunAsal || '-', k.akunTujuan || '-', Number(k.nominal) || 0, k.noRef || '-', k.keterangan || '-', k.petugas || '-']);
+          });
+      } else {
+        fileSuffix = 'Ringkasan_Keuangan';
+        rows = [
+          ['Kategori', 'Pos Keuangan', 'Nominal (Rp)', 'Format Rupiah'],
+          ['INFO', `Toko: ${db.config.namaToko} | Periode: ${periodeLabel}`, 0, `Dicetak: ${nowStr()}`],
+          ['OMZET', 'Penjualan Barang (POS)', m.omzetPenjualanBarang, rp(m.omzetPenjualanBarang)],
+          ['OMZET', 'Jasa Pasang (POS Kasir)', m.omzetJasaPenjualan, rp(m.omzetJasaPenjualan)],
+          ['OMZET', 'Pendapatan Jasa Servis', m.omzetJasaServis, rp(m.omzetJasaServis)],
+          ['OMZET', 'Spare Part Servis', m.omzetSparepartServis, rp(m.omzetSparepartServis)],
+          ['KOREKSI', 'Retur Penjualan', -m.totalReturOmzet, '-' + rp(m.totalReturOmzet)],
+          ['TOTAL', 'Total Omzet Bersih', m.omzetBersih, rp(m.omzetBersih)]
+        ];
+        if (akses.lihat_laba) {
+          rows.push(
+            ['LABA RUGI', 'Total HPP / Modal Terjual', -m.totalHpp, '-' + rp(m.totalHpp)],
+            ['LABA RUGI', 'Laba Kotor', m.labaKotor, rp(m.labaKotor)],
+            ['BIAYA OPS', 'Biaya Operasional Toko', -m.biayaOperasional, '-' + rp(m.biayaOperasional)],
+            ['TOTAL', 'Laba Bersih Operasional', m.labaBersihOperasional, rp(m.labaBersihOperasional)]
+          );
+        }
+        if (akses.lihat_modal) {
+          rows.push(['ASET STOK', 'Nilai Persediaan Barang', m.nilaiPersediaan, rp(m.nilaiPersediaan)]);
+        }
+        rows.push(
+          ['MODAL', 'Setoran Modal Pemilik', m.modalDisetor, rp(m.modalDisetor)],
+          ['MODAL', 'Penarikan Modal Pemilik', m.modalDitarik, rp(m.modalDitarik)],
+          ['TAGIHAN', 'Total Piutang Pelanggan', m.totalPiutang, rp(m.totalPiutang)],
+          ['TAGIHAN', 'Total Utang Pemasok', m.totalUtang, rp(m.totalUtang)],
+          ...balances.map((a) => ['SALDO KAS', `${a.nama} (${a.tipe})`, a.saldoAkhir, rp(a.saldoAkhir)])
+        );
+      }
+
+      // Gunakan directive sep=; tanpa BOM agar Excel langsung memisahkan kolom 100% rapi tanpa edit!
+      const csv = 'sep=;\r\n' + rows.map((r) => r.map(csvCell).join(';')).join('\r\n');
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Laporan_AziCell_${todayStr()}.csv`;
+      a.download = `AziCell_${fileSuffix}_${todayStr()}.csv`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      showToast('Laporan CSV lengkap berhasil diunduh!', 'success');
+      saveDatabase('EXPORT_CSV', fileSuffix, `Periode ${periodeLabel}`);
+      showToast(`CSV ${fileSuffix.replace(/_/g, ' ')} rapi siap buka di Excel berhasil diunduh!`, 'success');
     }
   };
 

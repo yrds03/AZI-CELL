@@ -20,7 +20,9 @@
 
 // [WAJIB GANTI KE ID SPREADSHEET PEMILIK SAAT SERAH TERIMA APLIKASI]
 const SPREADSHEET_ID = '1WH_nBZ7vsXp2lurFDKZV7TL1pqnrfLD27cax85m4-d8';
-const BACKEND_VERSION = '1.0.2';
+const BACKEND_VERSION = '1.0.3';
+// Keamanan: kunci target hanya ke SPREADSHEET_ID pemilik agar tidak bisa dialihkan pihak luar
+const ALLOW_CUSTOM_SPREADSHEET_ID = false;
 
 const SHEET_SCHEMA = {
   Pengaturan: [
@@ -125,8 +127,21 @@ function safeJsonParse(str, fallback) {
   }
 }
 
+function safeText(val, fallback) {
+  const s = (val === null || val === undefined || val === '') ? (fallback !== undefined ? String(fallback) : '') : String(val);
+  const trimmed = s.trim();
+  if (trimmed === '' || trimmed === '-') return s;
+  // Cegah Formula Injection di Google Sheets (=, +, @, atau - yang bukan angka negatif murni)
+  if (/^[=+@\t\r]/.test(s) || (/^-/.test(s) && !/^-\d+(\.\d+)?$/.test(trimmed))) {
+    return "'" + s;
+  }
+  return s;
+}
+
 function getTargetSpreadsheet(customId) {
-  const idToOpen = (customId && String(customId).trim() !== '') ? String(customId).trim() : SPREADSHEET_ID;
+  const idToOpen = (ALLOW_CUSTOM_SPREADSHEET_ID && customId && String(customId).trim() !== '')
+    ? String(customId).trim()
+    : SPREADSHEET_ID;
   try {
     return SpreadsheetApp.openById(idToOpen);
   } catch (err) {
@@ -258,13 +273,16 @@ function writeTableRows(ss, sheetName, rowsArray) {
     sheet.getRange(2, 1, lastRow - 1, clearCols).clearContent();
   }
   if (rowsArray.length > 0) {
+    const sanitizedRows = rowsArray.map((row) =>
+      row.map((cell) => (typeof cell === 'string' ? safeText(cell) : cell))
+    );
     const textCols = TEXT_FORMAT_COLUMNS[sheetName] || [];
     textCols.forEach((colIdx) => {
       if (colIdx <= headers.length) {
-        sheet.getRange(2, colIdx, rowsArray.length, 1).setNumberFormat('@');
+        sheet.getRange(2, colIdx, sanitizedRows.length, 1).setNumberFormat('@');
       }
     });
-    sheet.getRange(2, 1, rowsArray.length, headers.length).setValues(rowsArray);
+    sheet.getRange(2, 1, sanitizedRows.length, headers.length).setValues(sanitizedRows);
   }
 }
 
@@ -563,11 +581,11 @@ function syncFullPayloadToSheets(ss, db, audit) {
     } else if (audit && audit.action) {
       shLog.appendRow([
         'LOG-' + new Date().getTime().toString().slice(-6),
-        String(audit.time || now),
-        actor,
-        String(audit.action || ''),
-        String(audit.target || '-'),
-        String(audit.detail || ''),
+        safeText(audit.time || now),
+        safeText(actor),
+        safeText(audit.action || ''),
+        safeText(audit.target || '-'),
+        safeText(audit.detail || ''),
         'PWA-CLIENT'
       ]);
     }

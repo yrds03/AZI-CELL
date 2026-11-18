@@ -14,7 +14,7 @@
  */
 window.AZI_CONFIG = {
   // Naikkan versi ini setiap kali update agar sinkron dengan sw.js
-  APP_VERSION: "1.0.2",
+  APP_VERSION: "1.0.3",
 
   // ==========================================================================
   // [WAJIB GANTI KE PEMILIK APLIKASI SAAT HANDOVER / SERAH TERIMA]
