@@ -20,7 +20,7 @@
 
 // [WAJIB GANTI KE ID SPREADSHEET PEMILIK SAAT SERAH TERIMA APLIKASI]
 const SPREADSHEET_ID = '1WH_nBZ7vsXp2lurFDKZV7TL1pqnrfLD27cax85m4-d8';
-const BACKEND_VERSION = '1.0.4';
+const BACKEND_VERSION = '1.0.5';
 // Keamanan: kunci target hanya ke SPREADSHEET_ID pemilik agar tidak bisa dialihkan pihak luar
 const ALLOW_CUSTOM_SPREADSHEET_ID = false;
 
@@ -228,12 +228,12 @@ function setupDatabaseOtomatis(customSpreadsheetId) {
     ]);
   }
 
-  // 3. Pastikan Sheet Akun_Kas terisi 3 akun standar jika kosong
+  // 3. Pastikan Sheet Akun_Kas terisi 3 akun standar (saldo awal 0, siap produksi tanpa data dummy)
   const shAkun = ss.getSheetByName('Akun_Kas');
   if (shAkun.getLastRow() <= 1) {
     shAkun.getRange(2, 1, 3, SHEET_SCHEMA.Akun_Kas.length).setValues([
-      ['ACC-TUNAI', 'Kas Tunai Laci', 'Tunai', 5000000, 0, 0, 5000000, 'TRUE', now],
-      ['ACC-BANK', 'Bank BCA Operasional', 'Transfer', 15000000, 0, 0, 15000000, 'TRUE', now],
+      ['ACC-TUNAI', 'Kas Tunai Laci', 'Tunai', 0, 0, 0, 0, 'TRUE', now],
+      ['ACC-BANK', 'Bank BCA Operasional', 'Transfer', 0, 0, 0, 0, 'TRUE', now],
       ['ACC-QRIS', 'Saldo Penampungan QRIS', 'QRIS', 0, 0, 0, 0, 'TRUE', now]
     ]);
   }

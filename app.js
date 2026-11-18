@@ -34,6 +34,8 @@
   let isSubmittingLock = false;
   let isUpdatingOverlayActive = false;
   let idSeqCounter = 0;
+  let localMutationEpoch = 0;
+  let initialCloudPullPromise = null;
   let cloudSyncState = { status: 'idle', lastSyncedAt: '', message: '' };
 
   // Hak Akses Standar per Profil (Bab 04 - selaras dengan Code.gs)
@@ -247,10 +249,9 @@
     try { localStorage.setItem(LOGIN_GUARD_KEY, JSON.stringify(guard)); } catch (e) {}
   }
 
-  // Data Awal (Seed Data) sesuai Bab 15 & sinkron 2 akun bawaan Code.gs (owner & kasir)
+  // Struktur Database Awal Bersih (Siap Produksi — Bebas Data Dummy, sinkron 2 akun bawaan Code.gs)
   function createInitialDatabase() {
     const now = nowStr();
-    const today = todayStr();
     return {
       config: {
         spreadsheetId: window.AZI_CONFIG.SPREADSHEET_ID,
@@ -263,42 +264,19 @@
         { id: 'USR-02', username: 'kasir', password: hashPassword('123'), nama: 'Kasir Azi Cell', jabatan: 'Kasir', kontak: '081299991111', aktif: true, wajibGantiPassword: false, akses: JSON.parse(JSON.stringify(ROLE_PRESETS.Kasir)), dibuatPada: now }
       ],
       akunKas: [
-        { id: 'ACC-TUNAI', nama: 'Kas Tunai Laci', tipe: 'Tunai', saldoAwal: 5000000, aktif: true },
-        { id: 'ACC-BANK', nama: 'Bank BCA Operasional', tipe: 'Transfer', saldoAwal: 15000000, aktif: true },
+        { id: 'ACC-TUNAI', nama: 'Kas Tunai Laci', tipe: 'Tunai', saldoAwal: 0, aktif: true },
+        { id: 'ACC-BANK', nama: 'Bank BCA Operasional', tipe: 'Transfer', saldoAwal: 0, aktif: true },
         { id: 'ACC-QRIS', nama: 'Saldo Penampungan QRIS', tipe: 'QRIS', saldoAwal: 0, aktif: true }
       ],
-      barang: [
-        { sku: 'KBL-TC01', barcode: '899001', nama: 'Kabel Data Fast Charging Type-C', kategori: 'Aksesoris', satuan: 'pcs', hargaModal: 20000, hargaJual: 35000, stokAwal: 0, masuk: 10, keluar: 1, stokMinimum: 3, pemasok: 'Distributor Jaya', aktif: true, catatan: 'Contoh Bab 15' },
-        { sku: 'PRT-LCD01', barcode: '899002', nama: 'LCD Touchscreen Ori Set', kategori: 'Spare Part', satuan: 'pcs', hargaModal: 55000, hargaJual: 80000, stokAwal: 5, masuk: 0, keluar: 1, stokMinimum: 2, pemasok: 'Mitra Sparepart', aktif: true, catatan: 'Sparepart / Bisa Jual + Pasang' },
-        { sku: 'AKS-TG01', barcode: '899003', nama: 'Tempered Glass Ceramic Matte', kategori: 'Aksesoris', satuan: 'pcs', hargaModal: 8000, hargaJual: 25000, stokAwal: 20, masuk: 0, keluar: 0, stokMinimum: 5, pemasok: 'Distributor Jaya', aktif: true, catatan: '' },
-        { sku: 'AKS-CHG20', barcode: '899004', nama: 'Charger Adapter 20W PD', kategori: 'Aksesoris', satuan: 'unit', hargaModal: 45000, hargaJual: 85000, stokAwal: 8, masuk: 0, keluar: 0, stokMinimum: 3, pemasok: 'Distributor Jaya', aktif: true, catatan: '' }
-      ],
-      riwayatStok: [
-        { id: 'MUT-001', waktu: now, sku: 'KBL-TC01', nama: 'Kabel Data Fast Charging Type-C', jenis: 'Pembelian Masuk', ref: 'PB-001', masuk: 10, keluar: 0, sebelum: 0, sesudah: 10, modalSatuan: 20000, alasan: 'Kulakan lunas Bab 15', petugas: 'owner' },
-        { id: 'MUT-002', waktu: now, sku: 'KBL-TC01', nama: 'Kabel Data Fast Charging Type-C', jenis: 'Penjualan', ref: 'PJ-001', masuk: 0, keluar: 1, sebelum: 10, sesudah: 9, modalSatuan: 20000, alasan: 'Penjualan kasir Bab 15', petugas: 'kasir' },
-        { id: 'MUT-003', waktu: now, sku: 'PRT-LCD01', nama: 'LCD Touchscreen Ori Set', jenis: 'Pemakaian Servis', ref: 'SRV-001', masuk: 0, keluar: 1, sebelum: 5, sesudah: 4, modalSatuan: 55000, alasan: 'Servis Selesai SRV-001', petugas: 'owner' }
-      ],
-      pembelian: [
-        { no: 'PB-001', tanggal: today, pemasok: 'Distributor Jaya', refNota: 'INV-DJ-88', items: [{ sku: 'KBL-TC01', nama: 'Kabel Data Fast Charging Type-C', qty: 10, satuan: 'pcs', hargaBeli: 20000 }], total: 200000, dibayar: 200000, sisaUtang: 0, statusBayar: 'Lunas', akunId: 'ACC-TUNAI', jatuhTempo: '', petugas: 'owner', catatan: 'Pembelian 10 kabel @Rp20.000 lunas' }
-      ],
-      penjualan: [
-        { no: 'PJ-001', tanggalJam: now, statusDokumen: 'Final', pelanggan: 'Pelanggan Umum', kontak: '-', items: [{ sku: 'KBL-TC01', nama: 'Kabel Data Fast Charging Type-C', qty: 1, satuan: 'pcs', hargaJual: 35000, hargaModal: 20000 }], jasaItems: [], totalJasa: 0, subtotal: 35000, diskon: 0, totalAkhir: 35000, totalModalHistoris: 20000, labaKotor: 15000, metodeBayar: 'Tunai', akunId: 'ACC-TUNAI', uangDiterima: 50000, kembalian: 15000, jumlahTerbayar: 35000, sisaPiutang: 0, statusBayar: 'Lunas', jatuhTempo: '', petugas: 'kasir', catatan: 'Contoh Bab 15: Bayar Rp50.000 kembali Rp15.000' }
-      ],
-      servis: [
-        { no: 'SRV-001', tanggalTerima: now, tanggalSelesai: now, tanggalDiambil: '', pelanggan: 'Bpk. Hendra', kontak: '081388887777', perangkat: 'Smartphone Android', merekModel: 'Redmi Note 10', keluhan: 'Layar pecah bergaris', jenisServis: 'Ganti LCD + Pasang', kelengkapan: 'Unit + Silikon', statusPengerjaan: 'Selesai', tindakan: 'Penggantian LCD set dan pembersihan soket', spareparts: [{ sku: 'PRT-LCD01', nama: 'LCD Touchscreen Ori Set', qty: 1, hargaJual: 80000, hargaModal: 55000, terpotong: true }], totalSparepart: 80000, totalModalPart: 55000, namaJasa: 'Jasa Pasang & Kalibrasi LCD', biayaJasa: 50000, jasaItems: [{ nama: 'Jasa Pasang & Kalibrasi LCD', biaya: 50000 }], diskon: 0, estimasiBiaya: 130000, totalBiayaFinal: 130000, dpAwal: 50000, totalTerbayar: 50000, sisaTagihan: 80000, statusBayar: 'DP/Sebagian', stokPartTerpotong: true, alasanBatal: '', teknisi: 'owner', petugasTerima: 'kasir' }
-      ],
-      pembayaranTagihan: [
-        { id: 'PAY-001', tanggalJam: now, jenis: 'DP Servis', noRef: 'SRV-001', pihak: 'Bpk. Hendra', totalAwal: 130000, sudahDibayar: 0, nominal: 50000, sisaAkhir: 80000, metode: 'Tunai', akunId: 'ACC-TUNAI', refTransfer: '', statusKonfirmasi: 'Terkonfirmasi', petugas: 'kasir', catatan: 'DP awal saat terima servis (Uang masuk, bukan omzet ganda)' }
-      ],
-      kasModal: [
-        { id: 'KAS-001', tanggalJam: now, jenis: 'Keluar', kategori: 'Pembelian Stok Pemasok', akunAsal: 'ACC-TUNAI', akunTujuan: '', nominal: 200000, noRef: 'PB-001', keterangan: 'Bayar kulakan 10 kabel data', petugas: 'owner' },
-        { id: 'KAS-002', tanggalJam: now, jenis: 'Masuk', kategori: 'Penjualan Barang', akunAsal: '', akunTujuan: 'ACC-TUNAI', nominal: 35000, noRef: 'PJ-001', keterangan: 'Penjualan 1 kabel data (Tunai Rp50rb kembali Rp15rb)', petugas: 'kasir' },
-        { id: 'KAS-003', tanggalJam: now, jenis: 'Masuk', kategori: 'DP / Pembayaran Servis', akunAsal: '', akunTujuan: 'ACC-TUNAI', nominal: 50000, noRef: 'SRV-001', keterangan: 'DP Servis SRV-001 Bpk. Hendra', petugas: 'kasir' }
-      ],
+      barang: [],
+      riwayatStok: [],
+      pembelian: [],
+      penjualan: [],
+      servis: [],
+      pembayaranTagihan: [],
+      kasModal: [],
       returKoreksi: [],
-      logAudit: [
-        { id: 'LOG-001', waktu: now, pelaku: 'SYSTEM', aksi: 'INIT_DB', target: '12_SHEETS', detail: 'Inisialisasi struktur 12 sheet & seed data Azi Cell' }
-      ]
+      logAudit: []
     };
   }
 
@@ -407,7 +385,7 @@
     return seed;
   }
 
-  function saveDatabase(auditAction, auditTarget, auditDetail) {
+  function saveLocalOnly(auditAction, auditTarget, auditDetail) {
     if (auditAction) {
       db.logAudit.unshift({
         id: genId('LOG'),
@@ -420,6 +398,11 @@
       if (db.logAudit.length > 300) db.logAudit = db.logAudit.slice(0, 300);
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  }
+
+  function saveDatabase(auditAction, auditTarget, auditDetail) {
+    localMutationEpoch += 1;
+    saveLocalOnly(auditAction, auditTarget, auditDetail);
     syncToGoogleSheets(auditAction, auditTarget, auditDetail);
   }
 
@@ -679,26 +662,22 @@
 
   async function pullFromGoogleSheets(opts = {}) {
     const silent = Boolean(opts && opts.silent);
-    const onlyIfHasData = Boolean(opts && opts.onlyIfHasData);
     const gasUrl = (db.config.gasWebAppUrl || '').trim();
     if (!gasUrl) {
       if (!silent) showToast('URL Web App Google Apps Script belum diisi di menu Pengaturan!', 'warn');
-      return;
+      return { ok: false, skipped: true };
     }
+    const epochAtStart = localMutationEpoch;
     if (!silent) showToast('Menarik data terbaru dari 12 Sheet Google Spreadsheet...', 'info');
     try {
       const sep = gasUrl.includes('?') ? '&' : '?';
-      const url = `${gasUrl}${sep}action=pull&spreadsheetId=${encodeURIComponent(db.config.spreadsheetId || '')}`;
-      const resp = await fetch(url, { method: 'GET' });
+      const url = `${gasUrl}${sep}action=pull&spreadsheetId=${encodeURIComponent(db.config.spreadsheetId || '')}&_ts=${Date.now()}`;
+      const resp = await fetch(url, { method: 'GET', cache: 'no-store' });
       const json = await resp.json();
       if (json && json.status === 'PULL_SUCCESS' && json.data) {
-        const cloudHasTransactions =
-          (Array.isArray(json.data.barang) && json.data.barang.length > 0) ||
-          (Array.isArray(json.data.penjualan) && json.data.penjualan.length > 0) ||
-          (Array.isArray(json.data.servis) && json.data.servis.length > 0);
-        if (onlyIfHasData && !cloudHasTransactions) {
-          cloudSyncState = { status: 'ok', lastSyncedAt: nowStr(), message: 'Terhubung (Spreadsheet baru)' };
-          return;
+        // Cegah pull latar belakang menimpa transaksi baru yang baru saja disimpan pengguna
+        if (silent && localMutationEpoch !== epochAtStart) {
+          return { ok: false, stale: true };
         }
         const currentGasUrl = db.config.gasWebAppUrl;
         const currentSheetUrl = db.config.spreadsheetUrl;
@@ -707,17 +686,37 @@
         if (!pulled.config.spreadsheetUrl) pulled.config.spreadsheetUrl = currentSheetUrl;
         db = pulled;
         localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
-        cloudSyncState = { status: 'ok', lastSyncedAt: nowStr(), message: 'Data ditarik dari Spreadsheet' };
+
+        // Selaraskan state aktif dengan data terbaru dari Google Sheet (termasuk jika data dihapus/kosong)
+        if (!db.barang.some((b) => b.sku === pbSelectedSku)) {
+          pbSelectedSku = (db.barang[0] && db.barang[0].sku) || '';
+        }
+        if (!db.akunKas.some((a) => a.id === posAccountId)) {
+          posAccountId = (db.akunKas[0] && db.akunKas[0].id) || 'ACC-TUNAI';
+        }
+        posCart = posCart.filter((c) => db.barang.some((b) => b.sku === c.sku && b.aktif));
+        if (currentUser) {
+          const freshUser = db.karyawan.find((u) => u.username === currentUser.username && u.aktif);
+          if (freshUser) {
+            currentUser = freshUser;
+          } else {
+            saveSession(null);
+          }
+        }
+
+        cloudSyncState = { status: 'ok', lastSyncedAt: nowStr(), message: 'Tersinkron dari Spreadsheet' };
         if (!silent) showToast('Data terbaru berhasil ditarik dari Google Spreadsheet!', 'success');
-        else showToast('Sinkronisasi otomatis: data terbaru dimuat dari Google Spreadsheet.', 'info');
         renderApp();
+        return { ok: true };
       } else if (!silent) {
-        showToast('Gagal tarik data: ' + esc((json && json.message) || 'Pastikan Code.gs sudah versi terbaru & di-deploy ulang.'), 'error');
+        showToast('Gagal tarik data: ' + ((json && json.message) || 'Pastikan Code.gs sudah versi terbaru & di-deploy ulang.'), 'error');
       }
+      return { ok: false };
     } catch (err) {
       if (!silent) {
-        showToast('Tidak dapat menarik data dari Spreadsheet. Pastikan Web App diakses "Anyone" & sudah deploy versi terbaru.', 'error');
+        showToast('Tidak dapat menarik data dari Spreadsheet. Pastikan Web App diakses "Anyone" & koneksi internet aktif.', 'error');
       }
+      return { ok: false, error: err };
     }
   }
 
@@ -1122,6 +1121,12 @@
                   <input type="date" value="${filterDateEnd}" onchange="window.AZI.setDateFilter('${filterDateStart}', this.value)" class="px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-200" title="Sampai Tanggal" />
                   ${(filterDateStart || filterDateEnd) ? `<button onclick="window.AZI.setDateFilter('', '')" class="px-2 py-1.5 rounded-lg bg-slate-800 text-[11px] text-amber-300 font-bold">Reset</button>` : ''}
                 </div>
+                ${(db.config.gasWebAppUrl || '').trim() ? `
+                  <button type="button" onclick="window.AZI.syncNowFromCloud()" title="Tarik data terbaru dari Google Spreadsheet${cloudSyncState.lastSyncedAt ? ' (Terakhir: ' + esc(cloudSyncState.lastSyncedAt) + ')' : ''}" class="px-2.5 py-1.5 rounded-full bg-indigo-500/20 hover:bg-indigo-500/35 border border-indigo-400/40 text-indigo-200 font-bold text-[11px] flex items-center gap-1 transition">
+                    <span>🔄</span>
+                    <span class="hidden sm:inline">Sync Sheet</span>
+                  </button>
+                ` : ''}
                 ${renderBluetoothHeaderPill()}
                 <button onclick="window.AZI.logout()" class="lg:hidden px-2.5 py-1.5 rounded-full bg-rose-950/80 border border-rose-500/30 text-[11px] font-bold text-rose-200">Keluar</button>
               </div>
@@ -1930,7 +1935,7 @@
               <h3 class="text-sm font-extrabold text-white border-b border-slate-800 pb-2">Penyesuaian Stok (Opname / Rusak)</h3>
               <form onsubmit="window.AZI.submitStockAdjustment(event)" class="space-y-2.5 text-xs">
                 <select id="adj-sku" onchange="window.AZI.recalcStockAdjPreview()" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white">
-                  ${db.barang.map((b) => `<option value="${esc(b.sku)}">${esc(b.sku)} — ${esc(b.nama)} (Sisa: ${getStokAkhir(b)})</option>`).join('')}
+                  ${db.barang.length ? db.barang.map((b) => `<option value="${esc(b.sku)}">${esc(b.sku)} — ${esc(b.nama)} (Sisa: ${getStokAkhir(b)})</option>`).join('') : `<option value="">-- Belum ada Master Barang (Tambah di form atas) --</option>`}
                 </select>
                 <div class="grid grid-cols-2 gap-2">
                   <select id="adj-jenis" onchange="window.AZI.recalcStockAdjPreview()" class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white">
@@ -2069,7 +2074,7 @@
             <div>
               <label class="block text-[10px] text-slate-400 mb-1">Barang Terpilih</label>
               <select id="pb-sku" onchange="window.AZI.onPembelianItemChange(this.value)" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white">
-                ${db.barang.map((b) => `<option value="${esc(b.sku)}" ${b.sku === pbSelectedSku ? 'selected' : ''}>${esc(b.sku)} — ${esc(b.nama)} (Stok: ${getStokAkhir(b)} | Modal: ${rp(b.hargaModal)})</option>`).join('')}
+                ${db.barang.length ? db.barang.map((b) => `<option value="${esc(b.sku)}" ${b.sku === pbSelectedSku ? 'selected' : ''}>${esc(b.sku)} — ${esc(b.nama)} (Stok: ${getStokAkhir(b)} | Modal: ${rp(b.hargaModal)})</option>`).join('') : `<option value="">-- Belum ada Master Barang (Tambah di menu Barang & Stok) --</option>`}
               </select>
             </div>
             <div class="grid grid-cols-2 gap-2">
@@ -2384,7 +2389,7 @@
                 <div id="ret-ref-badge" class="mt-1 text-[10px] text-slate-400">Ketik nomor transaksi untuk memilih otomatis tanpa salah ketik.</div>
               </div>
               <select id="ret-sku" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white">
-                ${db.barang.map((b) => `<option value="${esc(b.sku)}">${esc(b.sku)} — ${esc(b.nama)} (Stok: ${getStokAkhir(b)})</option>`).join('')}
+                ${db.barang.length ? db.barang.map((b) => `<option value="${esc(b.sku)}">${esc(b.sku)} — ${esc(b.nama)} (Stok: ${getStokAkhir(b)})</option>`).join('') : `<option value="">-- Belum ada Master Barang --</option>`}
               </select>
               <div class="grid grid-cols-2 gap-2">
                 <input id="ret-qty" type="number" min="1" required value="1" placeholder="Jumlah Unit" class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono-num" />
@@ -2688,6 +2693,9 @@
                 📂 Pulihkan dari JSON
                 <input type="file" accept=".json,application/json" onchange="window.AZI.importBackupJson(event)" class="hidden" />
               </label>
+              ${currentUser.jabatan === 'Pemilik' ? `
+                <button type="button" onclick="window.AZI.confirmResetCleanProduction()" class="px-3.5 py-2 rounded-xl bg-rose-950/80 hover:bg-rose-900 border border-rose-500/50 text-rose-200 font-bold">🧹 Reset Data & Dummy (Mulai Nol)</button>
+              ` : ''}
             </div>
           </div>
         </div>
@@ -3509,7 +3517,7 @@
       if (p) p.type = p.type === 'password' ? 'text' : 'password';
     },
 
-    submitLogin(e) {
+    async submitLogin(e) {
       e.preventDefault();
       const errBox = document.getElementById('login-error-box');
       const guard = getLoginGuard();
@@ -3520,6 +3528,18 @@
         return;
       }
 
+      // Tunggu sinkronisasi tarik data awal dari Google Sheet selesai (maks 2.5 detik) agar data & akun selalu terbaru
+      let pullDoneOk = false;
+      if (initialCloudPullPromise) {
+        try {
+          const pullRes = await Promise.race([
+            initialCloudPullPromise,
+            new Promise((r) => setTimeout(() => r({ timeout: true }), 2500))
+          ]);
+          pullDoneOk = Boolean(pullRes && pullRes.ok);
+        } catch (err) {}
+      }
+
       const u = document.getElementById('login-username').value.trim();
       const p = document.getElementById('login-password').value;
       const found = db.karyawan.find((k) => k.username.toLowerCase() === u.toLowerCase() && verifyPassword(p, k.password));
@@ -3527,7 +3547,7 @@
         const nextFails = (guard.fails || 0) + 1;
         if (nextFails >= 5) {
           setLoginGuard({ fails: 0, lockUntil: Date.now() + 60000 });
-          saveDatabase('LOGIN_LOCKED', u || 'UNKNOWN', '5x percobaan login gagal (kunci 60 detik)');
+          saveLocalOnly('LOGIN_LOCKED', u || 'UNKNOWN', '5x percobaan login gagal (kunci 60 detik)');
           errBox.textContent = 'Terlalu banyak percobaan gagal. Login dikunci sementara selama 60 detik.';
         } else {
           setLoginGuard({ fails: nextFails, lockUntil: 0 });
@@ -3544,14 +3564,19 @@
 
       // Reset brute-force counter & auto-upgrade password lama (plaintext) ke SHA-256
       setLoginGuard({ fails: 0, lockUntil: 0 });
+      let passwordUpgraded = false;
       if (!String(found.password || '').startsWith('sha256:')) {
         found.password = hashPassword(p);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+        passwordUpgraded = true;
       }
 
       saveSession(found);
       activeMenu = found.akses.menus[0] || 'dashboard';
-      saveDatabase('LOGIN_SUCCESS', found.username, `Login sebagai ${found.jabatan}`);
+      // Simpan log login di lokal tanpa menimpa Google Sheet dengan cache lama
+      saveLocalOnly('LOGIN_SUCCESS', found.username, `Login sebagai ${found.jabatan}`);
+      if (passwordUpgraded && pullDoneOk) {
+        syncToGoogleSheets('UPGRADE_PASSWORD_HASH', found.username, 'Auto-upgrade SHA-256');
+      }
       showToast(`Selamat datang, ${found.nama} (${found.jabatan})!`, 'success');
       renderApp();
     },
@@ -4363,12 +4388,15 @@
         return;
       }
       const item = db.barang.find((b) => b.sku === sku);
-      if (!item) return;
+      if (!item) {
+        showToast('Spare part tidak ditemukan di Master Barang!', 'warn');
+        return;
+      }
       const alreadyPendingQty = editingServiceDraft.spareparts
         .filter((sp) => sp.sku === sku && !sp.terpotong)
         .reduce((sum, sp) => sum + (Number(sp.qty) || 0), 0);
       if (alreadyPendingQty + qty > getStokAkhir(item)) {
-        showToast(`Stok ${esc(item.nama)} tidak mencukupi (Tersisa ${getStokAkhir(item)})!`, 'error');
+        showToast(`Stok ${item.nama} tidak mencukupi (Tersisa ${getStokAkhir(item)})!`, 'error');
         return;
       }
       editingServiceDraft.spareparts.push({
@@ -4764,7 +4792,11 @@
       const qty = Number(document.getElementById('adj-qty').value) || 0;
       const alasan = document.getElementById('adj-alasan').value.trim();
       const item = db.barang.find((b) => b.sku === sku);
-      if (!item || qty <= 0) return;
+      if (!item) {
+        showToast('Belum ada master barang yang dipilih! Tambahkan barang dulu di menu Barang & Stok.', 'warn');
+        return;
+      }
+      if (qty <= 0) return;
 
       const sebelum = getStokAkhir(item);
       if (jenis === 'KELUAR' && sebelum < qty) {
@@ -4903,7 +4935,11 @@
       const akunId = document.getElementById('pb-akun').value;
 
       const item = db.barang.find((b) => b.sku === sku);
-      if (!item || qty <= 0) return;
+      if (!item) {
+        showToast('Belum ada master barang yang dipilih! Tambahkan barang dulu di menu Barang & Stok.', 'warn');
+        return;
+      }
+      if (qty <= 0) return;
 
       const total = qty * hargaBeli;
       const bayarAktual = Math.min(total, dibayar);
@@ -5344,7 +5380,10 @@
       const alasan = document.getElementById('ret-alasan').value.trim();
 
       const item = db.barang.find((b) => b.sku === sku);
-      if (!item) return;
+      if (!item) {
+        showToast('Belum ada master barang yang valid untuk diretur!', 'warn');
+        return;
+      }
 
       const waktu = nowStr();
       const sebelum = getStokAkhir(item);
@@ -5652,6 +5691,11 @@
       return pullFromGoogleSheets({ silent: false });
     },
 
+    syncNowFromCloud() {
+      if (!currentUser) return;
+      return pullFromGoogleSheets({ silent: false });
+    },
+
     saveStoreProfile(e) {
       e.preventDefault();
       if (!requirePerm(currentUser.akses.menus.includes('pengaturan'), 'Akses ditolak.')) return;
@@ -5742,6 +5786,35 @@
         }
       };
       reader.readAsText(file);
+    },
+
+    confirmResetCleanProduction() {
+      if (!requirePerm(currentUser.jabatan === 'Pemilik', 'Akses ditolak: Hanya Pemilik yang dapat mereset seluruh data ke nol!')) return;
+      this.openConfirmModal(
+        'Reset Data Transaksi & Dummy ke Nol?',
+        `<p>Tindakan ini akan <b class="text-rose-400">MENGOSONGKAN</b> seluruh data Master Barang, Penjualan, Servis, Pembelian, Mutasi Stok, Pembayaran, Kas/Modal, Retur, dan mengubah Saldo Awal Akun Kas menjadi <b>Rp0</b> di aplikasi maupun di Google Spreadsheet.</p>
+         <p class="text-emerald-300"><b>Aman:</b> Profil Toko, URL Spreadsheet, dan Akun Karyawan tetap dipertahankan.</p>`,
+        async () => {
+          db.barang = [];
+          db.riwayatStok = [];
+          db.pembelian = [];
+          db.penjualan = [];
+          db.servis = [];
+          db.pembayaranTagihan = [];
+          db.kasModal = [];
+          db.returKoreksi = [];
+          db.logAudit = [];
+          db.akunKas.forEach((a) => { a.saldoAwal = 0; });
+          posCart = [];
+          posServices = [];
+          posDiscount = 0;
+          pbSelectedSku = '';
+          editingBarangSku = '';
+          saveDatabase('RESET_CLEAN_PRODUCTION', 'ALL_DATA', 'Bersihkan data dummy/transaksi ke nol siap produksi');
+          showToast('Seluruh data berhasil dibersihkan ke nol & disinkronkan ke Google Spreadsheet!', 'success');
+          renderApp();
+        }
+      );
     },
 
     // ========================================================================
@@ -6428,8 +6501,8 @@
   initServiceWorkerAndAutoUpdate();
   renderApp();
 
-  // Pada perangkat baru (belum ada localStorage), tarik data terbaru dari Google Spreadsheet jika tersedia
-  if (isFreshDeviceBoot && db.config.gasWebAppUrl) {
-    pullFromGoogleSheets({ silent: true, onlyIfHasData: true });
+  // Tarik data terbaru dari Google Spreadsheet setiap kali aplikasi dibuka / di-refresh (Google Sheet = sumber data utama)
+  if (db.config.gasWebAppUrl) {
+    initialCloudPullPromise = pullFromGoogleSheets({ silent: true });
   }
 })();
