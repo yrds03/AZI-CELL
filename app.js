@@ -372,9 +372,22 @@
   let posNote = '';
   let posPaidOverride = null; // null = ikuti totalAkhir otomatis
 
-  // State Pencarian & Draf Modal Servis
+  // State Pencarian Live di Semua Menu & Anti-Human-Error
+  let globalSearchQuery = '';
+  let salesHistoryQuery = '';
+  let servisSearchQuery = '';
   let stokSearchQuery = '';
+  let mutasiSearchQuery = '';
+  let pembelianSearchQuery = '';
+  let pembayaranSearchQuery = '';
+  let kasSearchQuery = '';
+  let pbSelectedSku = (db.barang[0] && db.barang[0].sku) || '';
+  let pbItemSearchQuery = '';
+  let editingBarangSku = '';
   let editingServiceDraft = null;
+  let lastReceiptBleCopy2 = null;
+  let lastReceiptMeta = null;
+  let pendingConfirmFn = null;
 
   function loadDatabase() {
     try {
@@ -763,8 +776,8 @@
         ? 'py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5'
         : 'py-2.5 px-3 rounded-xl bg-rose-600/80 hover:bg-rose-600 text-white font-bold text-xs flex items-center justify-center gap-1.5';
       modalBleBtn.innerHTML = isConn
-        ? '<span>🖨️</span><span>Cetak Bluetooth (Siap)</span>'
-        : '<span>🖨️</span><span>Konek & Cetak Bluetooth</span>';
+        ? '<span>🖨️</span><span>Cetak 1x Bluetooth</span>'
+        : '<span>🖨️</span><span>Konek & Cetak 1x BT</span>';
     }
   }
 
@@ -938,6 +951,7 @@
   }
 
   function closeModal() {
+    pendingConfirmFn = null;
     const m = document.getElementById('modal-root');
     if (!m) return;
     m.classList.add('hidden');
@@ -1113,6 +1127,32 @@
               </div>
             </div>
 
+            <!-- BAR PENCARIAN CEPAT GLOBAL (AUTO-SEARCH SEMUA NO. TRANSAKSI / SERVIS / PEMBELIAN / KODE BARANG) -->
+            <div class="relative">
+              <div class="flex items-center gap-2">
+                <div class="relative flex-1">
+                  <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none">🔍</span>
+                  <input
+                    id="global-quick-search"
+                    type="text"
+                    value="${esc(globalSearchQuery)}"
+                    oninput="window.AZI.handleGlobalSearch(this.value)"
+                    onfocus="window.AZI.handleGlobalSearch(this.value)"
+                    placeholder="Cari cepat di semua menu: ketik No. Transaksi (PJ-), No. Servis (SRV-), No. Beli (PB-), Kode SKU / Barcode, Nama..."
+                    autocomplete="off"
+                    class="w-full pl-8 pr-8 py-2 rounded-xl bg-slate-900/95 border border-sky-500/35 focus:border-amber-400 focus:outline-none text-xs text-white placeholder:text-slate-400"
+                  />
+                  <button
+                    id="global-search-clear"
+                    type="button"
+                    onclick="window.AZI.clearGlobalSearch()"
+                    class="${globalSearchQuery ? '' : 'hidden '}absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-sm font-bold"
+                  >&times;</button>
+                </div>
+              </div>
+              <div id="global-search-dropdown" class="hidden absolute left-0 right-0 top-full mt-1.5 z-50 glass-card rounded-2xl border border-amber-500/40 shadow-2xl max-h-96 overflow-y-auto p-2 space-y-2"></div>
+            </div>
+
             <!-- BAR FILTER TANGGAL KHUSUS MOBILE & TABLET -->
             <div class="flex xl:hidden flex-wrap items-center gap-1.5 pt-1 border-t border-slate-800/70">
               <span class="text-[10px] font-bold text-slate-400 uppercase mr-1">Periode:</span>
@@ -1185,6 +1225,7 @@
     const akses = currentUser.akses;
 
     const weakPwd = isDefaultWeakPassword(currentUser.password);
+    const lowStockItems = db.barang.filter((b) => b.aktif && getStokAkhir(b) <= (Number(b.stokMinimum) || 0));
 
     return `
       ${weakPwd ? `
@@ -1193,6 +1234,25 @@
             <b>⚠️ Pengingat Keamanan:</b> Akun Anda masih menggunakan password bawaan. Disarankan segera mengganti sandi agar akun toko tetap aman.
           </div>
           <button onclick="window.AZI.openChangePasswordModal()" class="px-3 py-1.5 rounded-xl btn-luxury text-[11px] shrink-0">🔐 Ganti Sandi Sekarang</button>
+        </div>
+      ` : ''}
+
+      ${lowStockItems.length > 0 ? `
+        <div class="p-3.5 rounded-2xl bg-rose-950/45 border border-rose-500/40 space-y-2 text-xs">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="font-extrabold text-rose-200">🚨 Peringatan Stok Menipis / Habis (${lowStockItems.length} Barang)</div>
+            <span class="text-[10px] text-rose-300/80">Segera restok agar transaksi tidak terhambat</span>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            ${lowStockItems.slice(0, 6).map((b) => `
+              <div class="px-2.5 py-1.5 rounded-xl bg-slate-950/80 border border-rose-500/30 flex items-center gap-2">
+                <span class="font-mono-num text-[10px] text-sky-300 font-bold">${esc(b.sku)}</span>
+                <span class="text-white font-semibold">${esc(b.nama)}</span>
+                <span class="font-mono-num font-extrabold text-rose-400">Sisa ${getStokAkhir(b)}</span>
+                ${akses.menus.includes('pembelian') ? `<button onclick="window.AZI.quickRestockFromAlert('${escJs(b.sku)}')" class="px-2 py-0.5 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/40 text-emerald-200 font-bold text-[10px]">+ Beli Stok</button>` : ''}
+              </div>
+            `).join('')}
+          </div>
         </div>
       ` : ''}
 
@@ -1352,6 +1412,53 @@
     }).join('');
   }
 
+  function renderSalesHistoryRows(queryText) {
+    const q = String(queryText || '').trim().toLowerCase();
+    const filteredSales = db.penjualan.filter((p) => {
+      if (!currentUser.akses.semua_transaksi && p.petugas !== currentUser.username) return false;
+      if (!isInDateFilter(p.tanggalJam)) return false;
+      if (!q) return true;
+      const itemText = (p.items || []).map((i) => `${i.sku} ${i.nama}`).join(' ').toLowerCase();
+      const jasaText = (p.jasaItems || []).map((j) => j.nama).join(' ').toLowerCase();
+      return (
+        String(p.no || '').toLowerCase().includes(q) ||
+        String(p.pelanggan || '').toLowerCase().includes(q) ||
+        String(p.kontak || '').toLowerCase().includes(q) ||
+        String(p.statusBayar || '').toLowerCase().includes(q) ||
+        itemText.includes(q) ||
+        jasaText.includes(q)
+      );
+    });
+    if (filteredSales.length === 0) {
+      return `<tr><td colspan="7" class="py-6 text-center text-slate-500">Tidak ada transaksi penjualan yang cocok.</td></tr>`;
+    }
+    return filteredSales.map((p) => `
+      <tr>
+        <td class="py-2.5 font-mono-num font-bold text-amber-300">${esc(p.no)}</td>
+        <td class="py-2.5 text-slate-300">${esc(p.tanggalJam)}</td>
+        <td class="py-2.5">
+          <div class="font-semibold text-white">${esc(p.pelanggan)}</div>
+          ${(p.items && p.items.length > 0) ? `<div class="text-[10px] text-slate-400 truncate max-w-xs">${esc(p.items.map((i) => `${i.nama} (${i.qty}x)`).join(', '))}</div>` : ''}
+          ${(p.jasaItems && p.jasaItems.length > 0) ? `<div class="text-[10px] text-sky-300">+ Jasa: ${esc(p.jasaItems.map((j) => j.nama).join(', '))} (${rp(p.totalJasa)})</div>` : ''}
+        </td>
+        <td class="py-2.5"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${p.statusDokumen === 'Final' ? 'bg-sky-500/20 text-sky-300' : 'bg-slate-700 text-slate-300'}">${esc(p.statusDokumen)}</span></td>
+        <td class="py-2.5 font-mono-num font-bold text-white">${rp(p.totalAkhir)}</td>
+        <td class="py-2.5">
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${p.statusBayar === 'Lunas' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}">${esc(p.statusBayar)}</span>
+          ${p.sisaPiutang > 0 ? `<div class="text-[10px] text-rose-300 font-mono-num">Piutang: ${rp(p.sisaPiutang)}</div>` : ''}
+        </td>
+        <td class="py-2.5 text-right space-x-1 whitespace-nowrap">
+          ${p.statusDokumen === 'Final' ? `
+            ${currentUser.akses.cetak_ulang ? `<button onclick="window.AZI.openReceiptModal('PENJUALAN', '${escJs(p.no)}')" class="px-2.5 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-300 font-bold text-[11px]">🧾 Cek / Print 2x</button>` : `<span class="text-[10px] text-slate-500">Cetak terkunci</span>`}
+          ` : `
+            <button onclick="window.AZI.finalizeDraftSale('${escJs(p.no)}')" class="px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-bold text-[11px]">Finalisasi</button>
+            <button onclick="window.AZI.deleteDraftSale('${escJs(p.no)}')" class="px-2 py-1 rounded-lg bg-rose-500/20 border border-rose-500/40 text-rose-300 font-bold text-[11px]">Hapus</button>
+          `}
+        </td>
+      </tr>
+    `).join('');
+  }
+
   function renderPenjualanView() {
     const subtotalBarang = posCart.reduce((s, i) => s + i.qty * i.hargaJual, 0);
     const totalJasa = posServices.reduce((s, j) => s + (Number(j.biaya) || 0), 0);
@@ -1360,18 +1467,16 @@
     const currentPaid = posPaidOverride !== null ? posPaidOverride : totalAkhir;
     const selisih = currentPaid - totalAkhir;
 
-    const filteredSales = db.penjualan.filter((p) => {
-      if (!currentUser.akses.semua_transaksi && p.petugas !== currentUser.username) return false;
-      return isInDateFilter(p.tanggalJam);
-    });
-
     return `
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <!-- KATALOG PILIH BARANG -->
         <div class="lg:col-span-7 glass-card rounded-2xl p-5 space-y-4">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <h3 class="text-sm font-extrabold text-white">Katalog Barang Siap Jual</h3>
-            <input id="pos-search" type="text" value="${esc(posSearchQuery)}" oninput="window.AZI.filterPosCatalog(this.value)" placeholder="Cari nama barang / SKU / Barcode..." class="px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white w-full sm:w-64" />
+            <div>
+              <h3 class="text-sm font-extrabold text-white">Katalog Barang Siap Jual</h3>
+              <p class="text-[10px] text-slate-400">Ketik SKU/Barcode lalu tekan <b>Enter</b> untuk langsung masuk keranjang.</p>
+            </div>
+            <input id="pos-search" type="text" value="${esc(posSearchQuery)}" oninput="window.AZI.filterPosCatalog(this.value)" onkeydown="window.AZI.handlePosSearchEnter(event)" placeholder="Scan Barcode / SKU / Nama barang..." class="px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white w-full sm:w-64" />
           </div>
           <div id="pos-catalog-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[520px] overflow-y-auto pr-1">
             ${renderPosCatalogCards(posSearchQuery)}
@@ -1506,8 +1611,8 @@
       <!-- RIWAYAT PENJUALAN -->
       <div class="glass-card rounded-2xl p-5">
         <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-          <h3 class="text-sm font-extrabold text-white">Riwayat Transaksi Penjualan</h3>
-          <span class="text-[11px] text-slate-400">${filteredSales.length} transaksi${(filterDateStart || filterDateEnd) ? ' (Filter tanggal aktif)' : ''}</span>
+          <h3 class="text-sm font-extrabold text-white">Riwayat Transaksi Penjualan (Cek Nota & Print 2x)</h3>
+          <input id="sales-history-search" type="text" value="${esc(salesHistoryQuery)}" oninput="window.AZI.filterSalesHistory(this.value)" placeholder="🔍 Cari No. Transaksi (PJ-) / Pelanggan / Barang..." class="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white w-full sm:w-72" />
         </div>
         <div class="overflow-x-auto">
           <table class="w-full text-left text-xs">
@@ -1522,31 +1627,8 @@
                 <th class="py-2 text-right">Aksi / Cetak</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-slate-800/60">
-              ${filteredSales.length === 0 ? `<tr><td colspan="7" class="py-6 text-center text-slate-500">Belum ada transaksi penjualan pada periode ini.</td></tr>` : filteredSales.map((p) => `
-                <tr>
-                  <td class="py-2.5 font-mono-num font-bold text-amber-300">${esc(p.no)}</td>
-                  <td class="py-2.5 text-slate-300">${esc(p.tanggalJam)}</td>
-                  <td class="py-2.5">
-                    <div class="font-semibold text-white">${esc(p.pelanggan)}</div>
-                    ${(p.jasaItems && p.jasaItems.length > 0) ? `<div class="text-[10px] text-sky-300">+ Jasa: ${esc(p.jasaItems.map((j) => j.nama).join(', '))} (${rp(p.totalJasa)})</div>` : ''}
-                  </td>
-                  <td class="py-2.5"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${p.statusDokumen === 'Final' ? 'bg-sky-500/20 text-sky-300' : 'bg-slate-700 text-slate-300'}">${esc(p.statusDokumen)}</span></td>
-                  <td class="py-2.5 font-mono-num font-bold text-white">${rp(p.totalAkhir)}</td>
-                  <td class="py-2.5">
-                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${p.statusBayar === 'Lunas' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}">${esc(p.statusBayar)}</span>
-                    ${p.sisaPiutang > 0 ? `<div class="text-[10px] text-rose-300 font-mono-num">Piutang: ${rp(p.sisaPiutang)}</div>` : ''}
-                  </td>
-                  <td class="py-2.5 text-right space-x-1 whitespace-nowrap">
-                    ${p.statusDokumen === 'Final' ? `
-                      ${currentUser.akses.cetak_ulang ? `<button onclick="window.AZI.openReceiptModal('PENJUALAN', '${escJs(p.no)}')" class="px-2.5 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-300 font-bold text-[11px]">Nota / Invoice</button>` : `<span class="text-[10px] text-slate-500">Cetak terkunci</span>`}
-                    ` : `
-                      <button onclick="window.AZI.finalizeDraftSale('${escJs(p.no)}')" class="px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-bold text-[11px]">Finalisasi</button>
-                      <button onclick="window.AZI.deleteDraftSale('${escJs(p.no)}')" class="px-2 py-1 rounded-lg bg-rose-500/20 border border-rose-500/40 text-rose-300 font-bold text-[11px]">Hapus</button>
-                    `}
-                  </td>
-                </tr>
-              `).join('')}
+            <tbody id="sales-history-tbody" class="divide-y divide-slate-800/60">
+              ${renderSalesHistoryRows(salesHistoryQuery)}
             </tbody>
           </table>
         </div>
@@ -1555,13 +1637,104 @@
   }
 
   // ==========================================================================
-  // BAB 08: PENERIMAAN & PENGERJAAN SERVIS (DITERIMA > DIKERJAKAN > SELESAI > DIAMBIL)
+  // BAB 08: PENERIMAAN & PENGERJAAN SERVIS (STEPPER ALUR 1-KLIK ANTI HUMAN ERROR)
   // ==========================================================================
-  function renderServisView() {
+  function renderServisCardsList(queryText) {
+    const q = String(queryText || '').trim().toLowerCase();
     const list = db.servis.filter((s) => {
       if (!currentUser.akses.semua_transaksi && s.teknisi !== currentUser.username && s.petugasTerima !== currentUser.username) return false;
-      return isInDateFilter(s.tanggalTerima);
+      if (!isInDateFilter(s.tanggalTerima)) return false;
+      if (!q) return true;
+      return (
+        String(s.no || '').toLowerCase().includes(q) ||
+        String(s.pelanggan || '').toLowerCase().includes(q) ||
+        String(s.kontak || '').toLowerCase().includes(q) ||
+        String(s.merekModel || '').toLowerCase().includes(q) ||
+        String(s.jenisServis || '').toLowerCase().includes(q) ||
+        String(s.statusPengerjaan || '').toLowerCase().includes(q)
+      );
     });
+    if (list.length === 0) {
+      return `<p class="text-xs text-slate-500 text-center py-8">Tidak ada data servis yang cocok.</p>`;
+    }
+    const steps = ['Diterima', 'Dikerjakan', 'Selesai', 'Diambil'];
+    return list.map((s) => {
+      const stepIdx = steps.indexOf(s.statusPengerjaan);
+      const isBatal = s.statusPengerjaan === 'Batal';
+      return `
+        <div class="p-4 rounded-2xl bg-slate-900/90 border ${s.sisaTagihan > 0 && s.statusPengerjaan === 'Selesai' ? 'border-amber-500/40' : 'border-slate-800'} space-y-2.5 text-xs">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <span class="font-mono-num font-extrabold text-amber-400 text-sm">${esc(s.no)}</span>
+              <span class="text-slate-400 ml-2">${esc(s.tanggalTerima)}</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold ${isBatal ? 'bg-rose-500/20 text-rose-300' : (s.statusPengerjaan === 'Selesai' || s.statusPengerjaan === 'Diambil' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-sky-500/20 text-sky-300')}">${esc(s.statusPengerjaan)}</span>
+              <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold ${s.statusBayar === 'Lunas' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}">${esc(s.statusBayar)}</span>
+            </div>
+          </div>
+
+          ${!isBatal ? `
+            <!-- STEPPER PROGRES 4 LANGKAH -->
+            <div class="grid grid-cols-4 gap-1 pt-0.5">
+              ${steps.map((st, idx) => `
+                <div class="text-center">
+                  <div class="h-1.5 rounded-full ${idx <= stepIdx ? 'bg-gradient-to-r from-amber-400 to-emerald-400' : 'bg-slate-800'}"></div>
+                  <div class="text-[9px] mt-0.5 ${idx === stepIdx ? 'text-amber-300 font-extrabold' : (idx < stepIdx ? 'text-emerald-400' : 'text-slate-500')}">${idx + 1}. ${st}</div>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <div class="font-bold text-white">${esc(s.pelanggan)} (${esc(s.kontak)})</div>
+              <div class="text-slate-300">${esc(s.merekModel)} • <span class="text-sky-300">${esc(s.jenisServis)}</span></div>
+              <div class="text-[11px] text-slate-400">Keluhan: ${esc(s.keluhan)}</div>
+              ${s.spareparts && s.spareparts.length > 0 ? `<div class="text-[10px] text-amber-300/90 mt-0.5">Part: ${esc(s.spareparts.map((sp) => `${sp.nama} (${sp.qty}x)`).join(', '))}</div>` : ''}
+              ${s.namaJasa ? `<div class="text-[10px] text-sky-300/90">Jasa: ${esc(s.namaJasa)} (${rp(s.biayaJasa)})</div>` : ''}
+            </div>
+            <div class="sm:text-right font-mono-num">
+              <div class="text-slate-300">Sparepart: <b>${rp(s.totalSparepart)}</b> | Jasa: <b>${rp(s.biayaJasa)}</b></div>
+              ${Number(s.diskon) > 0 ? `<div class="text-[11px] text-amber-300">Diskon: -${rp(s.diskon)}</div>` : ''}
+              <div class="text-sm font-extrabold text-white">Total Final: ${rp(s.totalBiayaFinal || s.estimasiBiaya)}</div>
+              <div class="text-[11px] text-emerald-300">Sudah Bayar/DP: ${rp(s.totalTerbayar)} | <span class="text-rose-300">Sisa: ${rp(s.sisaTagihan)}</span></div>
+            </div>
+          </div>
+
+          <div class="pt-2 border-t border-slate-800 flex flex-wrap gap-1.5 justify-end">
+            ${s.statusPengerjaan === 'Diterima' ? `
+              <button onclick="window.AZI.quickAdvanceService('${escJs(s.no)}', 'Dikerjakan')" class="px-3 py-1.5 rounded-xl bg-sky-600/30 hover:bg-sky-600/45 border border-sky-400/50 text-sky-200 font-bold text-[11px]">▶ Mulai Kerjakan</button>
+            ` : ''}
+            ${s.statusPengerjaan === 'Dikerjakan' ? `
+              <button onclick="window.AZI.openServiceWorkModal('${escJs(s.no)}', 'Selesai')" class="px-3 py-1.5 rounded-xl bg-emerald-600/30 hover:bg-emerald-600/45 border border-emerald-400/50 text-emerald-200 font-bold text-[11px]">✅ Selesaikan & Isi Jasa</button>
+            ` : ''}
+            ${s.statusPengerjaan === 'Selesai' ? `
+              <button onclick="window.AZI.quickHandoverService('${escJs(s.no)}')" class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px]">🤝 Serahkan Unit (Diambil)</button>
+            ` : ''}
+            <button onclick="window.AZI.openServiceWorkModal('${escJs(s.no)}')" class="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold text-[11px]">
+              Edit Part & Jasa
+            </button>
+            ${(!isBatal && s.sisaTagihan > 0) ? `
+              <button onclick="window.AZI.openPayModal('SERVIS', '${escJs(s.no)}', ${s.sisaTagihan})" class="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 font-bold text-[11px]">
+                💳 Lunasi
+              </button>
+            ` : ''}
+            <button onclick="window.AZI.openReceiptModal('SERVIS_TERIMA', '${escJs(s.no)}')" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-[11px]">
+              Tanda Terima
+            </button>
+            ${(s.statusPengerjaan === 'Selesai' || s.statusPengerjaan === 'Diambil') ? `
+              <button onclick="window.AZI.openReceiptModal('SERVIS_FINAL', '${escJs(s.no)}')" class="px-3 py-1.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-300 font-bold text-[11px]">
+                🧾 Nota / Print 2x
+              </button>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderServisView() {
     return `
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <!-- FORM TERIMA SERVIS BARU -->
@@ -1610,57 +1783,11 @@
         <!-- DAFTAR ANTREAN & PENGERJAAN SERVIS -->
         <div class="lg:col-span-7 glass-card rounded-2xl p-5 space-y-4">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <h3 class="text-sm font-extrabold text-white">Daftar Pengerjaan Servis (Diterima &rarr; Dikerjakan &rarr; Selesai &rarr; Diambil)</h3>
-            <span class="text-[11px] text-slate-400">${list.length} unit</span>
+            <h3 class="text-sm font-extrabold text-white">Daftar Pengerjaan Servis</h3>
+            <input id="servis-search" type="text" value="${esc(servisSearchQuery)}" oninput="window.AZI.filterServisList(this.value)" placeholder="🔍 Cari No. Servis (SRV-) / Pelanggan / HP..." class="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white w-full sm:w-64" />
           </div>
-          <div class="space-y-3 max-h-[580px] overflow-y-auto pr-1">
-            ${list.length === 0 ? `<p class="text-xs text-slate-500 text-center py-8">Belum ada data servis pada periode ini.</p>` : list.map((s) => `
-              <div class="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-2.5 text-xs">
-                <div class="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <span class="font-mono-num font-extrabold text-amber-400 text-sm">${esc(s.no)}</span>
-                    <span class="text-slate-400 ml-2">${esc(s.tanggalTerima)}</span>
-                  </div>
-                  <div class="flex items-center gap-1.5">
-                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold ${s.statusPengerjaan === 'Batal' ? 'bg-rose-500/20 text-rose-300' : (s.statusPengerjaan === 'Selesai' || s.statusPengerjaan === 'Diambil' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-sky-500/20 text-sky-300')}">${esc(s.statusPengerjaan)}</span>
-                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold ${s.statusBayar === 'Lunas' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}">${esc(s.statusBayar)}</span>
-                  </div>
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div>
-                    <div class="font-bold text-white">${esc(s.pelanggan)} (${esc(s.kontak)})</div>
-                    <div class="text-slate-300">${esc(s.merekModel)} • <span class="text-sky-300">${esc(s.jenisServis)}</span></div>
-                    <div class="text-[11px] text-slate-400">Keluhan: ${esc(s.keluhan)}</div>
-                    ${s.spareparts && s.spareparts.length > 0 ? `<div class="text-[10px] text-amber-300/90 mt-0.5">Part: ${esc(s.spareparts.map((sp) => `${sp.nama} (${sp.qty}x)`).join(', '))}</div>` : ''}
-                    ${s.namaJasa ? `<div class="text-[10px] text-sky-300/90">Jasa: ${esc(s.namaJasa)} (${rp(s.biayaJasa)})</div>` : ''}
-                  </div>
-                  <div class="sm:text-right font-mono-num">
-                    <div class="text-slate-300">Sparepart: <b>${rp(s.totalSparepart)}</b> | Jasa: <b>${rp(s.biayaJasa)}</b></div>
-                    ${Number(s.diskon) > 0 ? `<div class="text-[11px] text-amber-300">Diskon: -${rp(s.diskon)}</div>` : ''}
-                    <div class="text-sm font-extrabold text-white">Total Final: ${rp(s.totalBiayaFinal || s.estimasiBiaya)}</div>
-                    <div class="text-[11px] text-emerald-300">Sudah Bayar/DP: ${rp(s.totalTerbayar)} | <span class="text-rose-300">Sisa: ${rp(s.sisaTagihan)}</span></div>
-                  </div>
-                </div>
-                <div class="pt-2 border-t border-slate-800 flex flex-wrap gap-2 justify-end">
-                  <button onclick="window.AZI.openServiceWorkModal('${escJs(s.no)}')" class="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold text-[11px]">
-                    Update Status / Part & Jasa
-                  </button>
-                  ${(s.statusPengerjaan !== 'Batal' && s.sisaTagihan > 0) ? `
-                    <button onclick="window.AZI.openPayModal('SERVIS', '${escJs(s.no)}', ${s.sisaTagihan})" class="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 font-bold text-[11px]">
-                      💳 Bayar Pelunasan
-                    </button>
-                  ` : ''}
-                  <button onclick="window.AZI.openReceiptModal('SERVIS_TERIMA', '${escJs(s.no)}')" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-[11px]">
-                    Tanda Terima
-                  </button>
-                  ${(s.statusPengerjaan === 'Selesai' || s.statusPengerjaan === 'Diambil') ? `
-                    <button onclick="window.AZI.openReceiptModal('SERVIS_FINAL', '${escJs(s.no)}')" class="px-3 py-1.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-300 font-bold text-[11px]">
-                      Cetak Nota / Invoice
-                    </button>
-                  ` : ''}
-                </div>
-              </div>
-            `).join('')}
+          <div id="servis-cards-list" class="space-y-3 max-h-[600px] overflow-y-auto pr-1">
+            ${renderServisCardsList(servisSearchQuery)}
           </div>
         </div>
       </div>
@@ -1712,20 +1839,58 @@
     }).join('');
   }
 
+  function renderMutasiRows(queryText) {
+    const q = String(queryText || '').trim().toLowerCase();
+    const list = db.riwayatStok.filter((m) => {
+      if (!q) return true;
+      return (
+        String(m.sku || '').toLowerCase().includes(q) ||
+        String(m.nama || '').toLowerCase().includes(q) ||
+        String(m.ref || '').toLowerCase().includes(q) ||
+        String(m.jenis || '').toLowerCase().includes(q) ||
+        String(m.petugas || '').toLowerCase().includes(q)
+      );
+    });
+    if (list.length === 0) {
+      return `<tr><td colspan="6" class="py-5 text-center text-slate-500">Tidak ada mutasi stok yang cocok.</td></tr>`;
+    }
+    return list.map((m) => `
+      <tr>
+        <td class="py-2 text-slate-400">${esc(m.waktu)}</td>
+        <td class="py-2 font-semibold text-white">${esc(m.nama)} <span class="text-[10px] font-mono-num text-sky-400">(${esc(m.sku)})</span></td>
+        <td class="py-2 text-sky-300">${esc(m.jenis)} (${esc(m.ref)})</td>
+        <td class="py-2 text-center font-mono-num font-bold ${m.masuk > 0 ? 'text-emerald-400' : 'text-rose-400'}">${m.masuk > 0 ? '+' + m.masuk : '-' + m.keluar}</td>
+        <td class="py-2 text-center font-mono-num">${m.sesudah}</td>
+        <td class="py-2 text-slate-300">${esc(m.petugas)}</td>
+      </tr>
+    `).join('');
+  }
+
   function renderStokView() {
     const akses = currentUser.akses;
-    const canManageStock = akses.lihat_modal || currentUser.jabatan === 'Pemilik' || currentUser.jabatan === 'Gudang';
+    const canManage = canManageStock();
+    const firstAdj = db.barang[0];
     return `
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        ${canManageStock ? `
+        ${canManage ? `
           <!-- TAMBAH BARANG / PENYESUAIAN STOK (KHUSUS PEMILIK / GUDANG) -->
           <div class="lg:col-span-4 space-y-5">
             <div class="glass-card rounded-2xl p-5 space-y-3">
-              <h3 class="text-sm font-extrabold text-white border-b border-slate-800 pb-2">Tambah / Edit Master Barang</h3>
-              <form onsubmit="window.AZI.submitMasterBarang(event)" class="space-y-2.5 text-xs">
-                <div class="grid grid-cols-2 gap-2">
-                  <input id="brg-sku" type="text" required placeholder="Kode SKU Unik *" class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono-num" />
-                  <input id="brg-barcode" type="text" placeholder="Barcode (Opsional)" class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono-num" />
+              <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                <h3 class="text-sm font-extrabold text-white">Tambah / Edit Master Barang</h3>
+                <button type="button" onclick="window.AZI.resetMasterBarangForm()" class="text-[10px] text-sky-400 hover:underline font-bold">Reset Form</button>
+              </div>
+              <div id="brg-edit-banner" class="${editingBarangSku ? '' : 'hidden '}p-2 rounded-xl bg-amber-950/60 border border-amber-500/40 text-[11px] text-amber-200 flex items-center justify-between gap-2">
+                <span>📝 Mode Edit: <b class="font-mono-num">${esc(editingBarangSku)}</b></span>
+                <button type="button" onclick="window.AZI.resetMasterBarangForm()" class="text-[10px] text-rose-300 font-bold underline">Batal</button>
+              </div>
+              <form id="form-master-barang" onsubmit="window.AZI.submitMasterBarang(event)" class="space-y-2.5 text-xs">
+                <div class="relative">
+                  <div class="grid grid-cols-2 gap-2">
+                    <input id="brg-sku" type="text" required oninput="window.AZI.handleMasterSkuSuggest(this.value)" placeholder="Kode SKU Unik *" autocomplete="off" class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono-num" />
+                    <input id="brg-barcode" type="text" oninput="window.AZI.handleMasterSkuSuggest(this.value)" placeholder="Barcode (Opsional)" autocomplete="off" class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono-num" />
+                  </div>
+                  <div id="brg-sku-suggest" class="hidden mt-1 p-2 rounded-xl bg-slate-950 border border-amber-500/40 space-y-1 max-h-36 overflow-y-auto"></div>
                 </div>
                 <input id="brg-nama" type="text" required placeholder="Nama Lengkap Barang *" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white" />
                 <div class="grid grid-cols-2 gap-2">
@@ -1735,13 +1900,14 @@
                 <div class="grid grid-cols-2 gap-2">
                   <div>
                     <label class="block text-[10px] text-slate-400 mb-1">Harga Modal (Rp)</label>
-                    <input id="brg-modal" type="number" min="0" required value="0" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono-num" />
+                    <input id="brg-modal" type="number" min="0" required value="0" oninput="window.AZI.checkMasterPriceMargin()" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono-num" />
                   </div>
                   <div>
                     <label class="block text-[10px] text-slate-400 mb-1">Harga Jual (Rp)</label>
-                    <input id="brg-jual" type="number" min="0" required value="0" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-amber-300 font-mono-num" />
+                    <input id="brg-jual" type="number" min="0" required value="0" oninput="window.AZI.checkMasterPriceMargin()" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-amber-300 font-mono-num" />
                   </div>
                 </div>
+                <div id="brg-margin-warn" class="hidden p-2 rounded-lg text-[11px] font-semibold"></div>
                 <div class="grid grid-cols-2 gap-2">
                   <div>
                     <label class="block text-[10px] text-slate-400 mb-1">Saldo Stok Awal Rak</label>
@@ -1763,15 +1929,18 @@
             <div class="glass-card rounded-2xl p-5 space-y-3">
               <h3 class="text-sm font-extrabold text-white border-b border-slate-800 pb-2">Penyesuaian Stok (Opname / Rusak)</h3>
               <form onsubmit="window.AZI.submitStockAdjustment(event)" class="space-y-2.5 text-xs">
-                <select id="adj-sku" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white">
+                <select id="adj-sku" onchange="window.AZI.recalcStockAdjPreview()" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white">
                   ${db.barang.map((b) => `<option value="${esc(b.sku)}">${esc(b.sku)} — ${esc(b.nama)} (Sisa: ${getStokAkhir(b)})</option>`).join('')}
                 </select>
                 <div class="grid grid-cols-2 gap-2">
-                  <select id="adj-jenis" class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white">
+                  <select id="adj-jenis" onchange="window.AZI.recalcStockAdjPreview()" class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white">
                     <option value="KELUAR">Koreksi Keluar / Rusak</option>
                     <option value="MASUK">Koreksi Masuk / Opname+</option>
                   </select>
-                  <input id="adj-qty" type="number" min="1" required placeholder="Jumlah Unit" class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono-num" />
+                  <input id="adj-qty" type="number" min="1" required placeholder="Jumlah Unit" oninput="window.AZI.recalcStockAdjPreview()" class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono-num" />
+                </div>
+                <div id="adj-preview" class="p-2 rounded-lg bg-slate-900/90 border border-slate-800 text-[11px] text-slate-300 font-mono-num">
+                  ${firstAdj ? `Stok saat ini: ${getStokAkhir(firstAdj)} ${esc(firstAdj.satuan)}` : 'Belum ada barang.'}
                 </div>
                 <input id="adj-alasan" type="text" required placeholder="Alasan wajib (mis: Barang rusak / Stok Opname)" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white" />
                 <button type="submit" class="w-full py-2.5 rounded-xl btn-cyber text-xs">Catat Penyesuaian Stok</button>
@@ -1781,11 +1950,11 @@
         ` : ''}
 
         <!-- TABEL STOK BARANG & KARTU RIWAYAT GERAKAN -->
-        <div class="${canManageStock ? 'lg:col-span-8' : 'lg:col-span-12'} space-y-5">
+        <div class="${canManage ? 'lg:col-span-8' : 'lg:col-span-12'} space-y-5">
           <div class="glass-card rounded-2xl p-5">
             <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
               <h3 class="text-sm font-extrabold text-white">Daftar Persediaan (Stok Akhir = Awal + Masuk - Keluar)</h3>
-              <input id="stok-search" type="text" value="${esc(stokSearchQuery)}" oninput="window.AZI.filterStokTable(this.value)" placeholder="Cari SKU / Nama / Barcode..." class="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white w-full sm:w-56" />
+              <input id="stok-search" type="text" value="${esc(stokSearchQuery)}" oninput="window.AZI.filterStokTable(this.value)" placeholder="🔍 Cari SKU / Nama / Barcode..." class="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white w-full sm:w-56" />
             </div>
             <div class="overflow-x-auto">
               <table class="w-full text-left text-xs">
@@ -1799,7 +1968,7 @@
                     <th class="py-2 text-center">Masuk</th>
                     <th class="py-2 text-center">Keluar</th>
                     <th class="py-2 text-right">Stok Tersisa</th>
-                    ${canManageStock ? `<th class="py-2 text-right">Aksi</th>` : ''}
+                    ${canManage ? `<th class="py-2 text-right">Aksi</th>` : ''}
                   </tr>
                 </thead>
                 <tbody id="stok-table-body" class="divide-y divide-slate-800/60">
@@ -1810,7 +1979,10 @@
           </div>
 
           <div class="glass-card rounded-2xl p-5">
-            <h3 class="text-sm font-extrabold text-white mb-3">Kartu Riwayat Mutasi Stok & Petugas</h3>
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <h3 class="text-sm font-extrabold text-white">Kartu Riwayat Mutasi Stok & Petugas</h3>
+              <input id="mutasi-search" type="text" value="${esc(mutasiSearchQuery)}" oninput="window.AZI.filterMutasiTable(this.value)" placeholder="🔍 Cari SKU / No. PJ-SRV-PB / Petugas..." class="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white w-full sm:w-64" />
+            </div>
             <div class="overflow-x-auto max-h-64">
               <table class="w-full text-left text-xs">
                 <thead>
@@ -1823,17 +1995,8 @@
                     <th class="py-2">Petugas</th>
                   </tr>
                 </thead>
-                <tbody class="divide-y divide-slate-800/60">
-                  ${db.riwayatStok.map((m) => `
-                    <tr>
-                      <td class="py-2 text-slate-400">${esc(m.waktu)}</td>
-                      <td class="py-2 font-semibold text-white">${esc(m.nama)}</td>
-                      <td class="py-2 text-sky-300">${esc(m.jenis)} (${esc(m.ref)})</td>
-                      <td class="py-2 text-center font-mono-num font-bold ${m.masuk > 0 ? 'text-emerald-400' : 'text-rose-400'}">${m.masuk > 0 ? '+' + m.masuk : '-' + m.keluar}</td>
-                      <td class="py-2 text-center font-mono-num">${m.sesudah}</td>
-                      <td class="py-2 text-slate-300">${esc(m.petugas)}</td>
-                    </tr>
-                  `).join('')}
+                <tbody id="mutasi-table-body" class="divide-y divide-slate-800/60">
+                  ${renderMutasiRows(mutasiSearchQuery)}
                 </tbody>
               </table>
             </div>
@@ -1844,29 +2007,74 @@
   }
 
   // ==========================================================================
-  // BAB 06.B: PEMBELIAN & BARANG MASUK PEMASOK (RATA-RATA TERTIMBANG MODAL)
+  // BAB 06.B: PEMBELIAN & BARANG MASUK PEMASOK (AUTO-SEARCH + CETAK NOTA 2X)
   // ==========================================================================
+  function renderPembelianHistoryRows(queryText) {
+    const q = String(queryText || '').trim().toLowerCase();
+    const filteredPb = db.pembelian.filter((pb) => {
+      if (!isInDateFilter(pb.tanggal)) return false;
+      if (!q) return true;
+      const itemTxt = (pb.items || []).map((i) => `${i.sku} ${i.nama}`).join(' ').toLowerCase();
+      return (
+        String(pb.no || '').toLowerCase().includes(q) ||
+        String(pb.refNota || '').toLowerCase().includes(q) ||
+        String(pb.pemasok || '').toLowerCase().includes(q) ||
+        String(pb.statusBayar || '').toLowerCase().includes(q) ||
+        itemTxt.includes(q)
+      );
+    });
+    if (filteredPb.length === 0) {
+      return `<tr><td colspan="8" class="py-6 text-center text-slate-500">Tidak ada nota pembelian yang cocok.</td></tr>`;
+    }
+    return filteredPb.map((pb) => `
+      <tr>
+        <td class="py-2.5 font-mono-num font-bold text-amber-300">
+          <div>${esc(pb.no)}</div>
+          <div class="text-[10px] text-slate-400">Ref: ${esc(pb.refNota || '-')}</div>
+        </td>
+        <td class="py-2.5 text-slate-300">${esc(pb.tanggal)}</td>
+        <td class="py-2.5">
+          <div class="font-semibold text-white">${esc(pb.pemasok)}</div>
+          <div class="text-[10px] text-slate-400">${esc((pb.items || []).map((i) => `${i.nama} (${i.qty} ${i.satuan || ''})`).join(', '))}</div>
+        </td>
+        <td class="py-2.5 font-mono-num text-white">${rp(pb.total)}</td>
+        <td class="py-2.5 font-mono-num text-emerald-300">${rp(pb.dibayar)}</td>
+        <td class="py-2.5 font-mono-num text-rose-300 font-bold">${rp(pb.sisaUtang)}</td>
+        <td class="py-2.5"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${pb.statusBayar === 'Lunas' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}">${esc(pb.statusBayar)}</span></td>
+        <td class="py-2.5 text-right whitespace-nowrap">
+          <button onclick="window.AZI.openReceiptModal('PEMBELIAN', '${escJs(pb.no)}')" class="px-2.5 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-300 font-bold text-[11px]">🧾 Cek / Print 2x</button>
+        </td>
+      </tr>
+    `).join('');
+  }
+
   function renderPembelianView() {
-    const firstItem = db.barang[0] || { hargaModal: 0 };
+    const selectedItem = db.barang.find((b) => b.sku === pbSelectedSku) || db.barang[0] || { sku: '', nama: '', satuan: 'pcs', hargaModal: 0, pemasok: '' };
+    pbSelectedSku = selectedItem.sku || '';
     const defaultQty = 1;
-    const defaultHarga = Number(firstItem.hargaModal) || 0;
+    const defaultHarga = Number(selectedItem.hargaModal) || 0;
     const defaultTotal = defaultQty * defaultHarga;
-    const filteredPb = db.pembelian.filter((pb) => isInDateFilter(pb.tanggal));
+    const stokSaatIni = selectedItem.sku ? getStokAkhir(selectedItem) : 0;
 
     return `
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div class="lg:col-span-5 glass-card rounded-2xl p-5 space-y-3">
           <h3 class="text-sm font-extrabold text-white border-b border-slate-800 pb-2">Catat Barang Masuk / Pembelian Pemasok</h3>
           <form onsubmit="window.AZI.submitPembelian(event)" class="space-y-3 text-xs">
-            <div class="grid grid-cols-2 gap-2">
-              <input id="pb-pemasok" type="text" required placeholder="Nama Pemasok / Supplier *" class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white" />
-              <input id="pb-ref" type="text" required placeholder="No. Nota Referensi *" class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white" />
+            <div class="relative">
+              <label class="block text-[10px] text-sky-300 font-bold mb-1">🔍 Cari Cepat Kode SKU / Barcode / Nama Barang</label>
+              <input id="pb-item-search" type="text" value="${esc(pbItemSearchQuery)}" oninput="window.AZI.handlePembelianItemSearch(this.value)" onfocus="window.AZI.handlePembelianItemSearch(this.value)" placeholder="Ketik SKU (mis: LCD, KBL) atau Barcode..." autocomplete="off" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-sky-500/40 text-white" />
+              <div id="pb-item-suggest" class="hidden absolute left-0 right-0 top-full mt-1 z-30 glass-card rounded-xl border border-amber-500/40 p-1.5 max-h-48 overflow-y-auto space-y-1 shadow-2xl"></div>
             </div>
             <div>
-              <label class="block text-[10px] text-slate-400 mb-1">Pilih Barang</label>
+              <label class="block text-[10px] text-slate-400 mb-1">Barang Terpilih</label>
               <select id="pb-sku" onchange="window.AZI.onPembelianItemChange(this.value)" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white">
-                ${db.barang.map((b) => `<option value="${esc(b.sku)}">${esc(b.sku)} — ${esc(b.nama)} (Modal: ${rp(b.hargaModal)})</option>`).join('')}
+                ${db.barang.map((b) => `<option value="${esc(b.sku)}" ${b.sku === pbSelectedSku ? 'selected' : ''}>${esc(b.sku)} — ${esc(b.nama)} (Stok: ${getStokAkhir(b)} | Modal: ${rp(b.hargaModal)})</option>`).join('')}
               </select>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <input id="pb-pemasok" type="text" required value="${esc(selectedItem.pemasok && selectedItem.pemasok !== '-' ? selectedItem.pemasok : '')}" placeholder="Nama Pemasok / Supplier *" class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white" />
+              <input id="pb-ref" type="text" required placeholder="No. Nota Pemasok *" class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white" />
             </div>
             <div class="grid grid-cols-2 gap-2">
               <div>
@@ -1878,9 +2086,14 @@
                 <input id="pb-harga" type="number" min="0" required value="${defaultHarga}" oninput="window.AZI.recalcPembelianTotal(true)" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-amber-300 font-mono-num" />
               </div>
             </div>
-            <div class="p-3 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between">
-              <span class="text-slate-400">Total Pembelian:</span>
-              <span id="pb-total-preview" class="text-sm font-extrabold font-mono-num text-amber-300">${rp(defaultTotal)}</span>
+            <div class="p-3 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1">
+              <div class="flex items-center justify-between">
+                <span class="text-slate-400">Total Pembelian:</span>
+                <span id="pb-total-preview" class="text-sm font-extrabold font-mono-num text-amber-300">${rp(defaultTotal)}</span>
+              </div>
+              <div id="pb-stock-preview" class="text-[11px] text-sky-300 font-mono-num">
+                Pratinjau Stok: ${stokSaatIni} &rarr; ${stokSaatIni + defaultQty} ${esc(selectedItem.satuan || 'pcs')} | Modal Baru: ${rp(defaultHarga)}
+              </div>
             </div>
             <div class="grid grid-cols-2 gap-2">
               <div>
@@ -1898,14 +2111,14 @@
               </div>
             </div>
             <div id="pb-utang-preview" class="text-[11px] text-emerald-300 font-mono-num">Status: Lunas (Sisa Utang: Rp0)</div>
-            <button type="submit" class="w-full py-3 rounded-xl btn-luxury text-xs uppercase">Simpan Barang Masuk & Update Stok</button>
+            <button type="submit" class="w-full py-3 rounded-xl btn-luxury text-xs uppercase">Simpan Barang Masuk & Cek Nota</button>
           </form>
         </div>
 
         <div class="lg:col-span-7 glass-card rounded-2xl p-5">
-          <div class="flex items-center justify-between mb-3">
-            <h3 class="text-sm font-extrabold text-white">Riwayat Pembelian & Utang Pemasok</h3>
-            <span class="text-[11px] text-slate-400">${filteredPb.length} nota</span>
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <h3 class="text-sm font-extrabold text-white">Riwayat Pembelian & Cek Nota Keluar</h3>
+            <input id="pb-history-search" type="text" value="${esc(pembelianSearchQuery)}" oninput="window.AZI.filterPembelianHistory(this.value)" placeholder="🔍 Cari No. Beli (PB-) / Nota / Pemasok / Barang..." class="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white w-full sm:w-64" />
           </div>
           <div class="overflow-x-auto">
             <table class="w-full text-left text-xs">
@@ -1918,23 +2131,11 @@
                   <th class="py-2">Dibayar</th>
                   <th class="py-2">Sisa Utang</th>
                   <th class="py-2">Status</th>
+                  <th class="py-2 text-right">Cek / Cetak</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-slate-800/60">
-                ${filteredPb.length === 0 ? `<tr><td colspan="7" class="py-6 text-center text-slate-500">Belum ada pembelian pada periode ini.</td></tr>` : filteredPb.map((pb) => `
-                  <tr>
-                    <td class="py-2.5 font-mono-num font-bold text-amber-300">${esc(pb.no)}</td>
-                    <td class="py-2.5 text-slate-300">${esc(pb.tanggal)}</td>
-                    <td class="py-2.5">
-                      <div class="font-semibold text-white">${esc(pb.pemasok)}</div>
-                      <div class="text-[10px] text-slate-400">${esc((pb.items || []).map((i) => `${i.nama} (${i.qty} ${i.satuan || ''})`).join(', '))}</div>
-                    </td>
-                    <td class="py-2.5 font-mono-num text-white">${rp(pb.total)}</td>
-                    <td class="py-2.5 font-mono-num text-emerald-300">${rp(pb.dibayar)}</td>
-                    <td class="py-2.5 font-mono-num text-rose-300 font-bold">${rp(pb.sisaUtang)}</td>
-                    <td class="py-2.5"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${pb.statusBayar === 'Lunas' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}">${esc(pb.statusBayar)}</span></td>
-                  </tr>
-                `).join('')}
+              <tbody id="pb-history-tbody" class="divide-y divide-slate-800/60">
+                ${renderPembelianHistoryRows(pembelianSearchQuery)}
               </tbody>
             </table>
           </div>
@@ -1946,11 +2147,13 @@
   // ==========================================================================
   // BAB 09: PEMBAYARAN PELANGGAN (PIUTANG) & PEMASOK (UTANG) TANPA OMZET GANDA
   // ==========================================================================
-  function renderPembayaranView() {
-    const piutangSales = db.penjualan.filter((p) => p.statusDokumen === 'Final' && p.sisaPiutang > 0);
-    const piutangServis = db.servis.filter((s) => s.statusPengerjaan !== 'Batal' && s.sisaTagihan > 0);
-    const utangBeli = db.pembelian.filter((pb) => pb.sisaUtang > 0);
-    const historyPay = db.pembayaranTagihan.filter((p) => isInDateFilter(p.tanggalJam));
+  function renderPembayaranSectionsHtml(queryText) {
+    const q = String(queryText || '').trim().toLowerCase();
+    const matchStr = (...vals) => !q || vals.some((v) => String(v || '').toLowerCase().includes(q));
+    const piutangSales = db.penjualan.filter((p) => p.statusDokumen === 'Final' && p.sisaPiutang > 0 && matchStr(p.no, p.pelanggan, p.kontak));
+    const piutangServis = db.servis.filter((s) => s.statusPengerjaan !== 'Batal' && s.sisaTagihan > 0 && matchStr(s.no, s.pelanggan, s.kontak, s.merekModel));
+    const utangBeli = db.pembelian.filter((pb) => pb.sisaUtang > 0 && matchStr(pb.no, pb.refNota, pb.pemasok));
+    const historyPay = db.pembayaranTagihan.filter((p) => isInDateFilter(p.tanggalJam) && matchStr(p.noRef, p.pihak, p.jenis, p.metode, p.refTransfer));
 
     return `
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1979,7 +2182,7 @@
                 <button onclick="window.AZI.openPayModal('PENJUALAN', '${escJs(p.no)}', ${p.sisaPiutang})" class="px-3 py-2 rounded-xl btn-luxury text-xs shrink-0">Terima Pelunasan</button>
               </div>
             `).join('')}
-            ${piutangServis.length === 0 && piutangSales.length === 0 ? `<p class="text-xs text-emerald-400 py-4 text-center">Semua tagihan pelanggan sudah Lunas!</p>` : ''}
+            ${piutangServis.length === 0 && piutangSales.length === 0 ? `<p class="text-xs text-emerald-400 py-4 text-center">${q ? 'Tidak ada tagihan yang cocok.' : 'Semua tagihan pelanggan sudah Lunas!'}</p>` : ''}
           </div>
         </div>
 
@@ -1998,12 +2201,12 @@
                 <button onclick="window.AZI.openPayModal('PEMBELIAN', '${escJs(pb.no)}', ${pb.sisaUtang})" class="px-3 py-2 rounded-xl btn-cyber text-xs shrink-0">Bayar Utang</button>
               </div>
             `).join('')}
-            ${utangBeli.length === 0 ? `<p class="text-xs text-emerald-400 py-4 text-center">Tidak ada utang pemasok yang belum lunas.</p>` : ''}
+            ${utangBeli.length === 0 ? `<p class="text-xs text-emerald-400 py-4 text-center">${q ? 'Tidak ada utang yang cocok.' : 'Tidak ada utang pemasok yang belum lunas.'}</p>` : ''}
           </div>
         </div>
       </div>
 
-      <!-- RIWAYAT PEMBAYARAN TAGIHAN (SINKRON SHEET Pembayaran_Tagihan) -->
+      <!-- RIWAYAT PEMBAYARAN TAGIHAN -->
       <div class="glass-card rounded-2xl p-5">
         <h3 class="text-sm font-extrabold text-white mb-3">Riwayat Pembayaran DP, Piutang & Utang</h3>
         <div class="overflow-x-auto max-h-72">
@@ -2038,12 +2241,55 @@
     `;
   }
 
+  function renderPembayaranView() {
+    return `
+      <div class="glass-panel rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 class="text-sm font-extrabold text-white">Cari Cepat Tagihan & Riwayat Pelunasan</h3>
+          <p class="text-[11px] text-slate-400">Ketik No. Transaksi (PJ-), No. Servis (SRV-), No. Beli (PB-), atau nama pelanggan/pemasok.</p>
+        </div>
+        <input id="pay-search" type="text" value="${esc(pembayaranSearchQuery)}" oninput="window.AZI.filterPembayaranView(this.value)" placeholder="🔍 Cari No. Ref / Pelanggan / Pemasok..." class="px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white w-full sm:w-72" />
+      </div>
+      <div id="pembayaran-content-wrap" class="space-y-6">
+        ${renderPembayaranSectionsHtml(pembayaranSearchQuery)}
+      </div>
+    `;
+  }
+
   // ==========================================================================
   // BAB 12: KAS, MODAL PEMILIK, BIAYA OPERASIONAL & TRANSFER ANTAR AKUN
   // ==========================================================================
+  function renderKasHistoryRows(queryText) {
+    const q = String(queryText || '').trim().toLowerCase();
+    const filteredKas = db.kasModal.filter((k) => {
+      if (!isInDateFilter(k.tanggalJam)) return false;
+      if (!q) return true;
+      return (
+        String(k.noRef || '').toLowerCase().includes(q) ||
+        String(k.kategori || '').toLowerCase().includes(q) ||
+        String(k.keterangan || '').toLowerCase().includes(q) ||
+        String(k.petugas || '').toLowerCase().includes(q) ||
+        String(k.jenis || '').toLowerCase().includes(q)
+      );
+    });
+    if (filteredKas.length === 0) {
+      return `<tr><td colspan="4" class="py-6 text-center text-slate-500">Tidak ada mutasi kas yang cocok.</td></tr>`;
+    }
+    return filteredKas.map((k) => `
+      <tr>
+        <td class="py-2 text-slate-400">${esc(k.tanggalJam)}</td>
+        <td class="py-2">
+          <div class="font-semibold text-white">${esc(k.kategori)}</div>
+          ${k.noRef && k.noRef !== 'MANUAL' ? `<div class="text-[10px] font-mono-num text-amber-300">Ref: ${esc(k.noRef)}</div>` : ''}
+        </td>
+        <td class="py-2 text-slate-300">${esc(k.keterangan)}</td>
+        <td class="py-2 text-right font-mono-num font-bold ${k.jenis === 'Masuk' ? 'text-emerald-400' : k.jenis === 'Keluar' ? 'text-rose-400' : 'text-sky-400'}">${k.jenis === 'Keluar' ? '-' : (k.jenis === 'Transfer' ? '⇄ ' : '+')}${rp(k.nominal)}</td>
+      </tr>
+    `).join('');
+  }
+
   function renderKasModalView() {
     const balances = getAccountBalances();
-    const filteredKas = db.kasModal.filter((k) => isInDateFilter(k.tanggalJam));
     return `
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div class="lg:col-span-5 glass-card rounded-2xl p-5 space-y-3">
@@ -2090,29 +2336,22 @@
           </div>
 
           <div class="glass-card rounded-2xl p-5">
-            <div class="flex items-center justify-between mb-3">
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
               <h3 class="text-sm font-extrabold text-white">Buku Arus Kas & Modal</h3>
-              <span class="text-[11px] text-slate-400">${filteredKas.length} mutasi</span>
+              <input id="kas-search" type="text" value="${esc(kasSearchQuery)}" oninput="window.AZI.filterKasHistory(this.value)" placeholder="🔍 Cari Ref (PJ/SRV/PB) / Kategori / Ket..." class="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white w-full sm:w-64" />
             </div>
             <div class="overflow-x-auto max-h-80">
               <table class="w-full text-left text-xs">
                 <thead>
                   <tr class="border-b border-slate-800 text-slate-400">
                     <th class="py-2">Waktu</th>
-                    <th class="py-2">Kategori</th>
+                    <th class="py-2">Kategori & Ref</th>
                     <th class="py-2">Keterangan</th>
                     <th class="py-2 text-right">Nominal</th>
                   </tr>
                 </thead>
-                <tbody class="divide-y divide-slate-800/60">
-                  ${filteredKas.length === 0 ? `<tr><td colspan="4" class="py-6 text-center text-slate-500">Belum ada mutasi kas pada periode ini.</td></tr>` : filteredKas.map((k) => `
-                    <tr>
-                      <td class="py-2 text-slate-400">${esc(k.tanggalJam)}</td>
-                      <td class="py-2 font-semibold text-white">${esc(k.kategori)}</td>
-                      <td class="py-2 text-slate-300">${esc(k.keterangan)}</td>
-                      <td class="py-2 text-right font-mono-num font-bold ${k.jenis === 'Masuk' ? 'text-emerald-400' : k.jenis === 'Keluar' ? 'text-rose-400' : 'text-sky-400'}">${k.jenis === 'Keluar' ? '-' : (k.jenis === 'Transfer' ? '⇄ ' : '+')}${rp(k.nominal)}</td>
-                    </tr>
-                  `).join('')}
+                <tbody id="kas-history-tbody" class="divide-y divide-slate-800/60">
+                  ${renderKasHistoryRows(kasSearchQuery)}
                 </tbody>
               </table>
             </div>
@@ -2123,7 +2362,7 @@
   }
 
   // ==========================================================================
-  // BAB 13: RETUR PENJUALAN, RETUR PEMBELIAN & KOREKSI TRANSAKSI
+  // BAB 13: RETUR PENJUALAN, RETUR PEMBELIAN & KOREKSI (AUTO-SEARCH TRANSAKSI)
   // ==========================================================================
   function renderReturView() {
     const canRetur = currentUser.akses.batal_retur_refund || currentUser.jabatan === 'Pemilik';
@@ -2134,11 +2373,16 @@
           <h3 class="text-sm font-extrabold text-white border-b border-slate-800 pb-2">Catat Retur Penjualan / Pembelian</h3>
           ${!canRetur ? `<div class="p-3 rounded-xl bg-rose-950/50 border border-rose-500/30 text-xs text-rose-200">Akun Anda tidak memiliki izin Batal / Retur / Refund. Hubungi Pemilik atau Keuangan.</div>` : `
             <form onsubmit="window.AZI.submitRetur(event)" class="space-y-3 text-xs">
-              <select id="ret-jenis" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white">
+              <select id="ret-jenis" onchange="window.AZI.handleReturRefSearch(document.getElementById('ret-noref').value)" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white">
                 <option value="Retur Penjualan">Retur Penjualan Pelanggan</option>
                 <option value="Retur Pembelian">Retur Pembelian ke Pemasok</option>
               </select>
-              <input id="ret-noref" type="text" required placeholder="No. Transaksi Asal (mis: PJ-001 / PB-001) *" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono-num" />
+              <div class="relative">
+                <label class="block text-[10px] text-sky-300 font-bold mb-1">🔍 Ketik No. Transaksi Asal (Otomatis Muncul & Isi Barang)</label>
+                <input id="ret-noref" type="text" required oninput="window.AZI.handleReturRefSearch(this.value)" onfocus="window.AZI.handleReturRefSearch(this.value)" placeholder="Ketik PJ- / PB- / Nama Pelanggan / Pemasok *" autocomplete="off" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-sky-500/40 text-white font-mono-num" />
+                <div id="ret-ref-suggest" class="hidden absolute left-0 right-0 top-full mt-1 z-30 glass-card rounded-xl border border-amber-500/40 p-1.5 max-h-48 overflow-y-auto space-y-1 shadow-2xl"></div>
+                <div id="ret-ref-badge" class="mt-1 text-[10px] text-slate-400">Ketik nomor transaksi untuk memilih otomatis tanpa salah ketik.</div>
+              </div>
               <select id="ret-sku" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white">
                 ${db.barang.map((b) => `<option value="${esc(b.sku)}">${esc(b.sku)} — ${esc(b.nama)} (Stok: ${getStokAkhir(b)})</option>`).join('')}
               </select>
@@ -2616,6 +2860,20 @@
   // BAB 10 & 11: PRATINJAU NOTA / INVOICE (BARANG + JASA PASANG & SERVIS)
   // ==========================================================================
   function openReceiptModal(docType, refNo) {
+    if (!currentUser || !currentUser.akses) return;
+    const mns = currentUser.akses.menus || [];
+    if (docType === 'PEMBELIAN' && !mns.includes('pembelian') && !currentUser.akses.lihat_modal) {
+      showToast('Akses ditolak untuk melihat nota pembelian pemasok!', 'error');
+      return;
+    }
+    if (docType === 'PENJUALAN' && !mns.includes('penjualan') && !mns.includes('pembayaran') && !mns.includes('retur') && !mns.includes('laporan')) {
+      showToast('Akses ditolak untuk melihat nota penjualan!', 'error');
+      return;
+    }
+    if ((docType === 'SERVIS_TERIMA' || docType === 'SERVIS_FINAL') && !mns.includes('servis') && !mns.includes('pembayaran') && !mns.includes('retur') && !mns.includes('laporan')) {
+      showToast('Akses ditolak untuk melihat nota servis!', 'error');
+      return;
+    }
     let title = 'NOTA TRANSAKSI';
     let itemsHtml = '';
     let summaryHtml = '';
@@ -2885,63 +3143,146 @@
         `\n\n*Rincian Biaya Jasa Servis:*\n` +
         jasaList.map((j) => `• ${j.nama} = ${rp(j.biaya)}`).join('\n') +
         `\n\n*TOTAL BIAYA: ${rp(s.totalBiayaFinal)}*\nSudah Bayar/DP: ${rp(s.totalTerbayar)}\nSisa Tagihan: ${rp(s.sisaTagihan)}\nStatus: *${statusBayar.toUpperCase()}*\n\n${db.config.footerNota}`;
+    } else if (docType === 'PEMBELIAN') {
+      const pb = db.pembelian.find((x) => x.no === refNo);
+      if (!pb) return;
+      const items = Array.isArray(pb.items) ? pb.items : [];
+      title = pb.statusBayar === 'Lunas' ? 'NOTA PEMBELIAN STOK (LUNAS)' : 'BUKTI PEMBELIAN STOK (UTANG)';
+      pelanggan = `Pemasok: ${pb.pemasok}`;
+      tanggal = pb.tanggal;
+      petugas = pb.petugas || '-';
+      statusBayar = pb.statusBayar;
+      extraMetaHtml = `<div>Ref Nota Pemasok: <b>${esc(pb.refNota || '-')}</b></div>`;
+      itemsHtml = `
+        <div class="font-bold underline mb-1">Rincian Barang Masuk:</div>
+        ${items.map((i) => `
+          <div class="py-0.5">
+            <div class="font-semibold">${esc(i.nama)} (${esc(i.sku)})</div>
+            <div class="flex justify-between pl-2">
+              <span>${i.qty} ${esc(i.satuan || 'pcs')} x ${rp(i.hargaBeli)}</span>
+              <span>${rp(i.qty * i.hargaBeli)}</span>
+            </div>
+          </div>
+        `).join('')}
+      `;
+      summaryHtml = `
+        <div class="flex justify-between font-bold text-sm"><span>TOTAL PEMBELIAN:</span><span>${rp(pb.total)}</span></div>
+        <div class="flex justify-between"><span>Sudah Dibayar:</span><span>${rp(pb.dibayar)}</span></div>
+        <div class="flex justify-between font-bold"><span>Sisa Utang:</span><span>${rp(pb.sisaUtang)}</span></div>
+      `;
+      blePayload = buildEscPosReceipt({
+        title,
+        metaLines: [
+          `No Beli  : ${pb.no}`,
+          `Ref Nota : ${pb.refNota || '-'}`,
+          `Tanggal  : ${pb.tanggal}`,
+          `Petugas  : ${petugas}`,
+          `Pemasok  : ${pb.pemasok}`
+        ],
+        sections: [{
+          heading: 'RINCIAN BARANG MASUK:',
+          lines: items.map((i) => ({
+            name: `${i.nama} (${i.sku})`,
+            detailLeft: `${i.qty} x ${rp(i.hargaBeli)}`,
+            detailRight: rp(i.qty * i.hargaBeli)
+          }))
+        }],
+        summaryRows: [
+          { left: 'TOTAL PEMBELIAN', right: rp(pb.total), bold: true },
+          { left: 'Sudah Dibayar', right: rp(pb.dibayar) },
+          { left: 'Sisa Utang', right: rp(pb.sisaUtang), bold: true }
+        ],
+        statusBayar: pb.statusBayar
+      });
+      waPhone = '';
+      waText = `*${db.config.namaToko}*\n${title}\nNo Beli: ${pb.no} | Ref: ${pb.refNota || '-'}\nTanggal: ${pb.tanggal}\nPemasok: ${pb.pemasok}\n\n*Rincian Barang Masuk:*\n` +
+        items.map((i) => `• ${i.nama} (${i.qty}x ${rp(i.hargaBeli)}) = ${rp(i.qty * i.hargaBeli)}`).join('\n') +
+        `\n\n*TOTAL: ${rp(pb.total)}*\nDibayar: ${rp(pb.dibayar)}\nSisa Utang: ${rp(pb.sisaUtang)}\nStatus: *${pb.statusBayar.toUpperCase()}*`;
     }
 
+    const bleWidth = db.config.lebarPrinter === '80mm' ? 48 : 32;
+    const cutSep = '\n' + '- '.repeat(Math.floor(bleWidth / 2)) + '\n';
+    const copy2Header = '\x1B\x61\x01\x1B\x45\x01[ SALINAN KE-2 / ARSIP TOKO ]\n\x1B\x45\x00\x1B\x61\x00';
     lastReceiptBlePayload = blePayload;
+    lastReceiptBleCopy2 = blePayload + cutSep + copy2Header + blePayload;
+    lastReceiptMeta = { docType, refNo };
+
     const cleanWaDigits = String(waPhone || '').replace(/\D/g, '').replace(/^0/, '62');
     const waShareUrl = `https://wa.me/${cleanWaDigits}?text=${encodeURIComponent(waText)}`;
     const paperClass = db.config.lebarPrinter === '80mm' ? 'receipt-80mm' : 'receipt-58mm';
     const isBtConn = bluetoothStatus === 'connected' && Boolean(bluetoothCharacteristic);
 
+    const buildReceiptBlockHtml = (copyLabel) => `
+      <div>
+        <div class="text-center border-b border-dashed border-black pb-2 mb-2">
+          <div class="font-extrabold text-sm">${esc(db.config.namaToko)}</div>
+          <div>${esc(db.config.alamat)}</div>
+          <div>Telp/WA: ${esc(db.config.kontak)}</div>
+          <div class="font-bold mt-1">${esc(title)}</div>
+          <div class="text-[10px] font-bold tracking-wider mt-0.5">${copyLabel}</div>
+        </div>
+        <div class="border-b border-dashed border-black pb-2 mb-2">
+          <div>No: <b>${esc(refNo)}</b></div>
+          <div>Waktu: ${esc(tanggal)}</div>
+          <div>Petugas: ${esc(petugas)}</div>
+          <div>${docType === 'PEMBELIAN' ? '' : 'Pelanggan: '}${esc(pelanggan)}</div>
+          ${extraMetaHtml}
+        </div>
+        <div class="border-b border-dashed border-black pb-2 mb-2">
+          ${itemsHtml}
+        </div>
+        <div class="border-b border-dashed border-black pb-2 mb-2 space-y-0.5">
+          ${summaryHtml}
+          <div class="flex justify-between font-extrabold pt-1"><span>STATUS BAYAR:</span><span>${esc(statusBayar.toUpperCase())}</span></div>
+        </div>
+        <div class="text-center text-[10px] whitespace-pre-line">${esc(db.config.footerNota)}</div>
+      </div>
+    `;
+
     openModal(`
-      <div class="glass-card rounded-2xl p-6 max-w-lg w-full space-y-4">
+      <div class="glass-card rounded-2xl p-5 sm:p-6 max-w-lg w-full space-y-4 my-4">
         <div class="flex items-center justify-between border-b border-slate-800 pb-3">
           <div>
-            <h3 class="text-sm font-extrabold text-white">Pratinjau Cetak (${esc(db.config.lebarPrinter)})</h3>
+            <h3 class="text-sm font-extrabold text-white">Cek & Cetak Nota (${esc(db.config.lebarPrinter)})</h3>
             <p class="text-[10px] ${isBtConn ? 'text-emerald-400' : 'text-rose-400'}">
-              Bluetooth: ${isBtConn ? `Terhubung (${esc(bluetoothDeviceName || 'Thermal')})` : 'Belum Konek (Merah)'}
+              Bluetooth: ${isBtConn ? `Terhubung (${esc(bluetoothDeviceName || 'Thermal')})` : 'Belum Konek (Merah)'} • Mendukung Cetak 1x & 2x (Asli + Arsip Toko)
             </p>
           </div>
           <button onclick="window.AZI.closeModal()" class="text-slate-400 hover:text-white text-xl">&times;</button>
         </div>
 
-        <!-- AREA KERTAS STRUK THERMAL -->
-        <div class="flex justify-center bg-slate-950 p-4 rounded-xl overflow-x-auto">
+        <!-- AREA KERTAS STRUK THERMAL (DUKUNG PRINT 1X & PRINT 2X ASLI + SALINAN TOKO) -->
+        <div class="flex justify-center bg-slate-950 p-4 rounded-xl overflow-x-auto max-h-[52vh] overflow-y-auto">
           <div id="thermal-print-area" class="${paperClass} bg-white text-black p-4 rounded shadow-xl">
-            <div class="text-center border-b border-dashed border-black pb-2 mb-2">
-              <div class="font-extrabold text-sm">${esc(db.config.namaToko)}</div>
-              <div>${esc(db.config.alamat)}</div>
-              <div>Telp/WA: ${esc(db.config.kontak)}</div>
-              <div class="font-bold mt-1">${esc(title)}</div>
+            ${buildReceiptBlockHtml('[ ASLI — UNTUK PELANGGAN / PIHAK TERKAIT ]')}
+            <div class="copy-print-only">
+              <div class="receipt-cut-line">✂ - - - - - POTONG DI SINI - - - - - ✂</div>
+              ${buildReceiptBlockHtml('[ SALINAN KE-2 — ARSIP TOKO ]')}
             </div>
-            <div class="border-b border-dashed border-black pb-2 mb-2">
-              <div>No: <b>${esc(refNo)}</b></div>
-              <div>Waktu: ${esc(tanggal)}</div>
-              <div>Petugas: ${esc(petugas)}</div>
-              <div>Pelanggan: ${esc(pelanggan)}</div>
-              ${extraMetaHtml}
-            </div>
-            <div class="border-b border-dashed border-black pb-2 mb-2">
-              ${itemsHtml}
-            </div>
-            <div class="border-b border-dashed border-black pb-2 mb-2 space-y-0.5">
-              ${summaryHtml}
-              <div class="flex justify-between font-extrabold pt-1"><span>STATUS BAYAR:</span><span>${esc(statusBayar.toUpperCase())}</span></div>
-            </div>
-            <div class="text-center text-[10px] whitespace-pre-line">${esc(db.config.footerNota)}</div>
           </div>
         </div>
 
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <button id="modal-ble-print-btn" onclick="window.AZI.printCurrentReceiptBluetooth()" class="col-span-2 sm:col-span-2 py-2.5 px-3 rounded-xl ${isBtConn ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-rose-600/80 hover:bg-rose-600'} text-white font-bold text-xs flex items-center justify-center gap-1.5">
-            <span>🖨️</span><span>${isBtConn ? 'Cetak Bluetooth (Siap)' : 'Konek & Cetak Bluetooth'}</span>
-          </button>
-          <button onclick="window.print()" class="py-2.5 px-3 rounded-xl btn-luxury text-xs">
-            📄 Cetak / PDF
-          </button>
-          <a href="${esc(waShareUrl)}" target="_blank" rel="noopener noreferrer" class="py-2.5 px-3 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 font-bold text-xs text-center flex items-center justify-center gap-1">
-            <span>📲</span><span>Kirim WA</span>
-          </a>
+        <!-- TOMBOL CETAK 1X, CETAK 2X (BLUETOOTH & PDF/SISTEM), & KIRIM WA -->
+        <div class="space-y-2">
+          <div class="grid grid-cols-2 gap-2">
+            <button id="modal-ble-print-btn" onclick="window.AZI.printCurrentReceiptBluetooth(1)" class="py-2.5 px-3 rounded-xl ${isBtConn ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-rose-600/80 hover:bg-rose-600'} text-white font-bold text-xs flex items-center justify-center gap-1.5">
+              <span>🖨️</span><span>${isBtConn ? 'Cetak 1x Bluetooth' : 'Konek & Cetak 1x BT'}</span>
+            </button>
+            <button onclick="window.AZI.printCurrentReceiptBluetooth(2)" class="py-2.5 px-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs flex items-center justify-center gap-1.5">
+              <span>🖨️</span><span>Cetak 2x Bluetooth</span>
+            </button>
+          </div>
+          <div class="grid grid-cols-3 gap-2">
+            <button onclick="window.AZI.printSystemReceipt(1)" class="py-2.5 px-2.5 rounded-xl btn-luxury text-xs">
+              📄 Print 1x
+            </button>
+            <button onclick="window.AZI.printSystemReceipt(2)" class="py-2.5 px-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-200 font-extrabold text-xs">
+              📄 Print 2x (Asli+Arsip)
+            </button>
+            <a href="${esc(waShareUrl)}" target="_blank" rel="noopener noreferrer" class="py-2.5 px-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 font-bold text-xs text-center flex items-center justify-center gap-1">
+              <span>📲</span><span>Kirim WA</span>
+            </a>
+          </div>
         </div>
       </div>
     `);
@@ -2964,6 +3305,203 @@
       filterDateStart = start || '';
       filterDateEnd = end || '';
       renderApp();
+    },
+
+    // ========================================================================
+    // PENCARIAN CEPAT GLOBAL (AUTO-SEARCH DI SEMUA MENU + ANTI HUMAN ERROR)
+    // ========================================================================
+    handleGlobalSearch(query) {
+      globalSearchQuery = String(query || '');
+      const clearBtn = document.getElementById('global-search-clear');
+      const box = document.getElementById('global-search-dropdown');
+      if (clearBtn) clearBtn.classList.toggle('hidden', globalSearchQuery.trim() === '');
+      if (!box) return;
+
+      const q = globalSearchQuery.trim().toLowerCase();
+      if (!q) {
+        box.classList.add('hidden');
+        box.innerHTML = '';
+        return;
+      }
+
+      const akses = currentUser.akses;
+      const sections = [];
+
+      // 1. Cari Penjualan (PJ-...)
+      if (akses.menus.includes('penjualan')) {
+        const salesHits = db.penjualan.filter((p) => {
+          if (!akses.semua_transaksi && p.petugas !== currentUser.username) return false;
+          const itemsStr = (p.items || []).map((i) => `${i.sku} ${i.nama}`).join(' ').toLowerCase();
+          return String(p.no).toLowerCase().includes(q) || String(p.pelanggan).toLowerCase().includes(q) || String(p.kontak).toLowerCase().includes(q) || itemsStr.includes(q);
+        }).slice(0, 5);
+        if (salesHits.length) {
+          sections.push(`
+            <div>
+              <div class="text-[10px] font-extrabold uppercase tracking-wider text-sky-400 px-2 py-1">🛒 Penjualan (${salesHits.length})</div>
+              ${salesHits.map((p) => `
+                <div class="p-2 rounded-xl hover:bg-slate-800/80 flex items-center justify-between gap-2 text-xs">
+                  <div class="min-w-0">
+                    <span class="font-mono-num font-bold text-amber-300">${esc(p.no)}</span>
+                    <span class="text-white font-semibold ml-1.5">${esc(p.pelanggan)}</span>
+                    <span class="text-slate-400 ml-1.5 font-mono-num">${rp(p.totalAkhir)} (${esc(p.statusBayar)})</span>
+                  </div>
+                  <div class="flex gap-1 shrink-0">
+                    ${p.statusDokumen === 'Final' ? `<button type="button" onclick="window.AZI.clearGlobalSearch(); window.AZI.openReceiptModal('PENJUALAN', '${escJs(p.no)}')" class="px-2 py-1 rounded-lg bg-sky-500/20 border border-sky-500/40 text-sky-300 font-bold text-[10px]">🧾 Cek / Print 2x</button>` : ''}
+                    <button type="button" onclick="window.AZI.globalJumpTo('penjualan', '${escJs(p.no)}')" class="px-2 py-1 rounded-lg bg-slate-800 text-slate-200 font-bold text-[10px]">Buka</button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          `);
+        }
+      }
+
+      // 2. Cari Servis (SRV-...)
+      if (akses.menus.includes('servis')) {
+        const srvHits = db.servis.filter((s) => {
+          if (!akses.semua_transaksi && s.teknisi !== currentUser.username && s.petugasTerima !== currentUser.username) return false;
+          return String(s.no).toLowerCase().includes(q) || String(s.pelanggan).toLowerCase().includes(q) || String(s.kontak).toLowerCase().includes(q) || String(s.merekModel).toLowerCase().includes(q) || String(s.jenisServis).toLowerCase().includes(q);
+        }).slice(0, 5);
+        if (srvHits.length) {
+          sections.push(`
+            <div>
+              <div class="text-[10px] font-extrabold uppercase tracking-wider text-amber-400 px-2 py-1">🛠️ Servis (${srvHits.length})</div>
+              ${srvHits.map((s) => `
+                <div class="p-2 rounded-xl hover:bg-slate-800/80 flex items-center justify-between gap-2 text-xs">
+                  <div class="min-w-0">
+                    <span class="font-mono-num font-bold text-amber-300">${esc(s.no)}</span>
+                    <span class="text-white font-semibold ml-1.5">${esc(s.pelanggan)} — ${esc(s.merekModel)}</span>
+                    <span class="text-sky-300 ml-1 text-[10px]">[${esc(s.statusPengerjaan)}]</span>
+                  </div>
+                  <div class="flex gap-1 shrink-0">
+                    <button type="button" onclick="window.AZI.clearGlobalSearch(); window.AZI.openServiceWorkModal('${escJs(s.no)}')" class="px-2 py-1 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-[10px]">Update</button>
+                    <button type="button" onclick="window.AZI.clearGlobalSearch(); window.AZI.openReceiptModal('${(s.statusPengerjaan === 'Selesai' || s.statusPengerjaan === 'Diambil') ? 'SERVIS_FINAL' : 'SERVIS_TERIMA'}', '${escJs(s.no)}')" class="px-2 py-1 rounded-lg bg-sky-500/20 border border-sky-500/40 text-sky-300 font-bold text-[10px]">🧾 Nota</button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          `);
+        }
+      }
+
+      // 3. Cari Pembelian (PB-...)
+      if (akses.menus.includes('pembelian')) {
+        const pbHits = db.pembelian.filter((pb) => {
+          const itemStr = (pb.items || []).map((i) => `${i.sku} ${i.nama}`).join(' ').toLowerCase();
+          return String(pb.no).toLowerCase().includes(q) || String(pb.refNota).toLowerCase().includes(q) || String(pb.pemasok).toLowerCase().includes(q) || itemStr.includes(q);
+        }).slice(0, 5);
+        if (pbHits.length) {
+          sections.push(`
+            <div>
+              <div class="text-[10px] font-extrabold uppercase tracking-wider text-emerald-400 px-2 py-1">🚚 Pembelian (${pbHits.length})</div>
+              ${pbHits.map((pb) => `
+                <div class="p-2 rounded-xl hover:bg-slate-800/80 flex items-center justify-between gap-2 text-xs">
+                  <div class="min-w-0">
+                    <span class="font-mono-num font-bold text-amber-300">${esc(pb.no)}</span>
+                    <span class="text-white font-semibold ml-1.5">${esc(pb.pemasok)}</span>
+                    <span class="text-slate-400 ml-1 text-[10px]">Ref: ${esc(pb.refNota)} • ${rp(pb.total)}</span>
+                  </div>
+                  <div class="flex gap-1 shrink-0">
+                    <button type="button" onclick="window.AZI.clearGlobalSearch(); window.AZI.openReceiptModal('PEMBELIAN', '${escJs(pb.no)}')" class="px-2 py-1 rounded-lg bg-sky-500/20 border border-sky-500/40 text-sky-300 font-bold text-[10px]">🧾 Cek / Print 2x</button>
+                    <button type="button" onclick="window.AZI.globalJumpTo('pembelian', '${escJs(pb.no)}')" class="px-2 py-1 rounded-lg bg-slate-800 text-slate-200 font-bold text-[10px]">Buka</button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          `);
+        }
+      }
+
+      // 4. Cari Barang / Kode SKU / Barcode
+      if (akses.menus.includes('stok') || akses.menus.includes('penjualan')) {
+        const brgHits = db.barang.filter((b) =>
+          String(b.sku).toLowerCase().includes(q) ||
+          String(b.barcode || '').toLowerCase().includes(q) ||
+          String(b.nama).toLowerCase().includes(q) ||
+          String(b.kategori).toLowerCase().includes(q)
+        ).slice(0, 6);
+        if (brgHits.length) {
+          sections.push(`
+            <div>
+              <div class="text-[10px] font-extrabold uppercase tracking-wider text-indigo-300 px-2 py-1">📦 Barang & Kode SKU (${brgHits.length})</div>
+              ${brgHits.map((b) => {
+                const stok = getStokAkhir(b);
+                return `
+                  <div class="p-2 rounded-xl hover:bg-slate-800/80 flex items-center justify-between gap-2 text-xs">
+                    <div class="min-w-0">
+                      <span class="font-mono-num font-bold text-sky-400">${esc(b.sku)}</span>
+                      <span class="text-white font-semibold ml-1.5">${esc(b.nama)}</span>
+                      <span class="ml-1.5 font-mono-num text-[11px] ${stok > 0 ? 'text-emerald-400' : 'text-rose-400'}">Stok: ${stok}</span>
+                      <span class="ml-1 font-mono-num text-amber-300 font-bold">${rp(b.hargaJual)}</span>
+                    </div>
+                    <div class="flex gap-1 shrink-0">
+                      ${akses.menus.includes('penjualan') && b.aktif && stok > 0 ? `<button type="button" onclick="window.AZI.clearGlobalSearch(); window.AZI.navigate('penjualan'); window.AZI.addToPosCart('${escJs(b.sku)}')" class="px-2 py-1 rounded-lg btn-luxury text-[10px]">+ Kasir</button>` : ''}
+                      ${akses.menus.includes('stok') ? `<button type="button" onclick="window.AZI.globalJumpTo('stok', '${escJs(b.sku)}')" class="px-2 py-1 rounded-lg bg-slate-800 text-slate-200 font-bold text-[10px]">Cek Stok</button>` : ''}
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          `);
+        }
+      }
+
+      box.innerHTML = sections.length
+        ? sections.join('<div class="border-t border-slate-800"></div>')
+        : `<div class="p-3 text-center text-xs text-slate-400">Tidak ditemukan transaksi, servis, pembelian, atau barang dengan kata kunci "${esc(globalSearchQuery)}".</div>`;
+      box.classList.remove('hidden');
+    },
+
+    clearGlobalSearch() {
+      globalSearchQuery = '';
+      const inp = document.getElementById('global-quick-search');
+      const box = document.getElementById('global-search-dropdown');
+      const clr = document.getElementById('global-search-clear');
+      if (inp) inp.value = '';
+      if (box) { box.classList.add('hidden'); box.innerHTML = ''; }
+      if (clr) clr.classList.add('hidden');
+    },
+
+    globalJumpTo(menuId, filterText) {
+      if (menuId === 'penjualan') salesHistoryQuery = filterText;
+      else if (menuId === 'servis') servisSearchQuery = filterText;
+      else if (menuId === 'pembelian') pembelianSearchQuery = filterText;
+      else if (menuId === 'stok') stokSearchQuery = filterText;
+      this.clearGlobalSearch();
+      this.navigate(menuId);
+    },
+
+    quickRestockFromAlert(sku) {
+      if (!requirePerm(currentUser.akses.menus.includes('pembelian'), 'Akses ditolak untuk menu Pembelian.')) return;
+      pbSelectedSku = sku;
+      pbItemSearchQuery = '';
+      this.navigate('pembelian');
+      showToast(`Barang ${sku} siap dicatat masuk di menu Pembelian!`, 'info');
+    },
+
+    // Dialog Konfirmasi Cerdas Anti-Salah-Input
+    openConfirmModal(title, messageHtml, onConfirmFn) {
+      pendingConfirmFn = onConfirmFn;
+      openModal(`
+        <div class="glass-card rounded-2xl p-6 max-w-md w-full space-y-4 border border-amber-500/50 text-xs">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
+            <h3 class="text-sm font-extrabold text-amber-300">⚠️ ${esc(title)}</h3>
+            <button onclick="window.AZI.closeModal()" class="text-slate-400 hover:text-white text-xl">&times;</button>
+          </div>
+          <div class="text-slate-200 leading-relaxed space-y-1.5">${messageHtml}</div>
+          <div class="grid grid-cols-2 gap-2 pt-2">
+            <button type="button" onclick="window.AZI.closeModal()" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold">Batal / Cek Ulang</button>
+            <button type="button" onclick="window.AZI.confirmModalAccept()" class="py-2.5 rounded-xl btn-luxury">Ya, Lanjutkan</button>
+          </div>
+        </div>
+      `);
+    },
+
+    confirmModalAccept() {
+      const fn = pendingConfirmFn;
+      pendingConfirmFn = null;
+      closeModal();
+      if (typeof fn === 'function') fn();
     },
 
     toggleLoginPassword() {
@@ -3027,8 +3565,21 @@
       posContact = '';
       posNote = '';
       posPaidOverride = null;
+      globalSearchQuery = '';
+      salesHistoryQuery = '';
+      servisSearchQuery = '';
+      stokSearchQuery = '';
+      mutasiSearchQuery = '';
+      pembelianSearchQuery = '';
+      pembayaranSearchQuery = '';
+      kasSearchQuery = '';
+      pbItemSearchQuery = '';
+      editingBarangSku = '';
       editingServiceDraft = null;
       lastReceiptBlePayload = null;
+      lastReceiptBleCopy2 = null;
+      lastReceiptMeta = null;
+      pendingConfirmFn = null;
       saveSession(null);
       showToast('Anda telah keluar dari sesi Azi Cell.', 'info');
       renderApp();
@@ -3083,12 +3634,43 @@
     },
 
     // ========================================================================
-    // POS KASIR ACTIONS (BARANG + JASA / ONGKOS PASANG)
+    // POS KASIR ACTIONS (BARANG + JASA / ONGKOS PASANG + BARCODE ENTER + FILTER)
     // ========================================================================
     filterPosCatalog(query) {
       posSearchQuery = String(query || '');
       const grid = document.getElementById('pos-catalog-grid');
       if (grid) grid.innerHTML = renderPosCatalogCards(posSearchQuery);
+    },
+
+    handlePosSearchEnter(e) {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const q = String(posSearchQuery || '').trim().toLowerCase();
+      if (!q) return;
+      const exact = db.barang.find((b) =>
+        b.aktif && (String(b.sku).toLowerCase() === q || String(b.barcode || '').toLowerCase() === q)
+      );
+      const matches = exact ? [exact] : db.barang.filter((b) =>
+        b.aktif && (String(b.sku).toLowerCase().includes(q) || String(b.barcode || '').toLowerCase().includes(q) || String(b.nama).toLowerCase().includes(q))
+      );
+      if (matches.length === 1) {
+        const added = this.addToPosCart(matches[0].sku);
+        if (added) {
+          posSearchQuery = '';
+          renderApp();
+          showToast(`${matches[0].nama} otomatis masuk ke keranjang!`, 'success');
+          const sInp = document.getElementById('pos-search');
+          if (sInp) sInp.focus();
+        }
+      } else if (matches.length === 0) {
+        showToast(`Kode "${posSearchQuery}" tidak ditemukan di katalog aktif.`, 'warn');
+      }
+    },
+
+    filterSalesHistory(query) {
+      salesHistoryQuery = String(query || '');
+      const tbody = document.getElementById('sales-history-tbody');
+      if (tbody) tbody.innerHTML = renderSalesHistoryRows(salesHistoryQuery);
     },
 
     setPosField(field, value) {
@@ -3100,13 +3682,13 @@
 
     addToPosCart(sku) {
       const item = db.barang.find((b) => b.sku === sku && b.aktif);
-      if (!item) return;
+      if (!item) return false;
       const stokTersedia = getStokAkhir(item);
       const existing = posCart.find((c) => c.sku === sku);
       const nextQty = existing ? existing.qty + 1 : 1;
       if (nextQty > stokTersedia) {
-        showToast(`Stok ${esc(item.nama)} tidak mencukupi (Tersisa ${stokTersedia} ${esc(item.satuan)})!`, 'error');
-        return;
+        showToast(`Stok ${item.nama} tidak mencukupi (Tersisa ${stokTersedia} ${item.satuan})!`, 'error');
+        return false;
       }
       if (existing) {
         existing.qty = nextQty;
@@ -3122,6 +3704,7 @@
       }
       posPaidOverride = null;
       renderApp();
+      return true;
     },
 
     updatePosQty(idx, val) {
@@ -3257,7 +3840,7 @@
       }
     },
 
-    savePosTransaction(statusDokumen) {
+    savePosTransaction(statusDokumen, skipTypoConfirm = false) {
       if (isSubmittingLock) return;
       if (posCart.length === 0 && posServices.length === 0) {
         showToast('Keranjang masih kosong! Tambahkan barang atau jasa pasang terlebih dahulu.', 'error');
@@ -3271,6 +3854,27 @@
       for (const j of cleanServices) {
         if (!j.nama || isNaN(j.biaya) || j.biaya < 0) {
           showToast('Lengkapi Nama Jasa & Biaya Jasa yang valid (boleh 0 jika gratis)!', 'error');
+          return;
+        }
+      }
+
+      // Cek deteksi typo nol berlebih / diskon ekstrem sebelum finalisasi (Anti Human Error!)
+      if (statusDokumen === 'Final' && !skipTypoConfirm) {
+        const subBrgCheck = posCart.reduce((s, i) => s + i.qty * i.hargaJual, 0);
+        const totJasaCheck = cleanServices.reduce((s, j) => s + j.biaya, 0);
+        const subCheck = subBrgCheck + totJasaCheck;
+        const diskCheck = Math.min(subCheck, Math.max(0, Number(posDiscount) || 0));
+        const totCheck = Math.max(0, subCheck - diskCheck);
+        const uangCheck = Math.max(0, Number((document.getElementById('pos-uang-diterima') || {}).value) || 0);
+        const typoUang = totCheck > 0 && uangCheck > Math.max(totCheck * 5, totCheck + 500000);
+        const diskonBesar = subCheck > 0 && diskCheck > subCheck * 0.5;
+        if (typoUang || diskonBesar) {
+          const reason = typoUang
+            ? `Uang diterima <b>${rp(uangCheck)}</b> jauh lebih besar dari Total <b>${rp(totCheck)}</b> (Kembalian <b>${rp(uangCheck - totCheck)}</b>). Pastikan tidak kelebihan mengetik angka 0!`
+            : `Diskon <b>${rp(diskCheck)}</b> melebihi 50% dari Subtotal <b>${rp(subCheck)}</b>. Pastikan nominal diskon sudah benar!`;
+          this.openConfirmModal('Konfirmasi Nominal Transaksi', `<p>${reason}</p><p class="text-slate-400">Lanjutkan simpan transaksi ini?</p>`, () => {
+            this.savePosTransaction('Final', true);
+          });
           return;
         }
       }
@@ -3468,8 +4072,49 @@
     },
 
     // ========================================================================
-    // SERVIS ACTIONS (BAB 08 — MULTI SPAREPART, MULTI JASA, ATOMIC STOCK CUT)
+    // SERVIS ACTIONS (STEPPER 1-KLIK + MULTI SPAREPART + MULTI JASA)
     // ========================================================================
+    filterServisList(query) {
+      servisSearchQuery = String(query || '');
+      const wrap = document.getElementById('servis-cards-list');
+      if (wrap) wrap.innerHTML = renderServisCardsList(servisSearchQuery);
+    },
+
+    quickAdvanceService(noSrv, targetStatus) {
+      const s = db.servis.find((x) => x.no === noSrv);
+      if (!s) return;
+      s.statusPengerjaan = targetStatus;
+      saveDatabase('UPDATE_SERVICE_STATUS', s.no, `Status -> ${targetStatus}`);
+      showToast(`Servis ${s.no} sekarang berstatus "${targetStatus}"!`, 'success');
+      renderApp();
+    },
+
+    quickHandoverService(noSrv) {
+      const s = db.servis.find((x) => x.no === noSrv);
+      if (!s) return;
+      if (s.sisaTagihan > 0) {
+        this.openConfirmModal(
+          'Tagihan Servis Belum Lunas!',
+          `<p>Unit <b>${esc(s.merekModel)}</b> milik <b>${esc(s.pelanggan)}</b> masih memiliki sisa tagihan <b class="text-rose-400 font-mono-num">${rp(s.sisaTagihan)}</b>.</p>
+           <p>Apakah Anda yakin tetap menyerahkan unit sebagai <b>Piutang / Belum Lunas</b>? (Atau klik Batal lalu tekan tombol <b>💳 Lunasi</b> terlebih dahulu.)</p>`,
+          () => {
+            s.statusPengerjaan = 'Diambil';
+            s.tanggalDiambil = nowStr();
+            saveDatabase('HANDOVER_SERVICE_UNPAID', s.no, `Diambil dengan sisa tagihan ${rp(s.sisaTagihan)}`);
+            showToast(`Servis ${s.no} ditandai Diambil (Sisa piutang ${rp(s.sisaTagihan)}).`, 'warn');
+            renderApp();
+          }
+        );
+        return;
+      }
+      s.statusPengerjaan = 'Diambil';
+      s.tanggalDiambil = nowStr();
+      saveDatabase('HANDOVER_SERVICE', s.no, 'Unit diserahkan ke pelanggan (Lunas)');
+      showToast(`Servis ${s.no} berhasil diserahkan (Status: Diambil & Lunas)!`, 'success');
+      renderApp();
+      openReceiptModal('SERVIS_FINAL', s.no);
+    },
+
     submitNewService(e) {
       e.preventDefault();
       const pelanggan = document.getElementById('srv-pelanggan').value.trim();
@@ -3561,7 +4206,7 @@
       openReceiptModal('SERVIS_TERIMA', noSrv);
     },
 
-    openServiceWorkModal(noSrv) {
+    openServiceWorkModal(noSrv, presetStatus = null) {
       const s = db.servis.find((x) => x.no === noSrv);
       if (!s) return;
       const existingJasa = (Array.isArray(s.jasaItems) && s.jasaItems.length > 0)
@@ -3569,7 +4214,7 @@
         : [{ nama: s.namaJasa || s.jenisServis || 'Jasa Servis', biaya: Number(s.biayaJasa) || 0 }];
       editingServiceDraft = {
         no: s.no,
-        statusPengerjaan: s.statusPengerjaan,
+        statusPengerjaan: presetStatus || s.statusPengerjaan,
         teknisi: s.teknisi || currentUser.username,
         tindakan: s.tindakan || '',
         spareparts: JSON.parse(JSON.stringify(s.spareparts || [])),
@@ -3617,6 +4262,7 @@
             <!-- DAFTAR SPARE PART -->
             <div class="p-3 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2.5">
               <div class="font-bold text-amber-400">1. Spare Part dari Stok (Otomatis potong stok saat Selesai)</div>
+              <input id="upd-srv-part-search" type="text" oninput="window.AZI.filterModalServiceParts(this.value)" placeholder="🔍 Ketik Kode SKU / Nama Spare Part (mis: LCD, Baterai)..." class="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-sky-500/40 text-white text-[11px]" />
               <div class="flex gap-1.5">
                 <select id="upd-srv-part-sku" class="flex-1 min-w-0 px-2.5 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white text-[11px]">
                   <option value="">-- Pilih Spare Part --</option>
@@ -3691,6 +4337,19 @@
       if (!editingServiceDraft) return;
       editingServiceDraft[field] = value;
       if (rerender) this.renderServiceWorkModalContent();
+    },
+
+    filterModalServiceParts(query) {
+      const sel = document.getElementById('upd-srv-part-sku');
+      if (!sel) return;
+      const q = String(query || '').trim().toLowerCase();
+      const list = db.barang.filter((b) => {
+        if (!b.aktif) return false;
+        if (!q) return true;
+        return String(b.sku).toLowerCase().includes(q) || String(b.barcode || '').toLowerCase().includes(q) || String(b.nama).toLowerCase().includes(q);
+      });
+      sel.innerHTML = (list.length === 1 ? '' : '<option value="">-- Pilih Spare Part (' + list.length + ') --</option>') +
+        list.map((b) => `<option value="${esc(b.sku)}">${esc(b.sku)} — ${esc(b.nama)} (${rp(b.hargaJual)} | Stok: ${getStokAkhir(b)})</option>`).join('');
     },
 
     addDraftServicePart() {
@@ -3905,7 +4564,7 @@
     },
 
     // ========================================================================
-    // STOK & PEMBELIAN ACTIONS (BAB 06)
+    // STOK & PEMBELIAN ACTIONS (AUTO-SUGGEST + ANTI-HUMAN-ERROR)
     // ========================================================================
     filterStokTable(query) {
       stokSearchQuery = String(query || '');
@@ -3913,9 +4572,95 @@
       if (tbody) tbody.innerHTML = renderStokTableRows(stokSearchQuery);
     },
 
+    filterMutasiTable(query) {
+      mutasiSearchQuery = String(query || '');
+      const tbody = document.getElementById('mutasi-table-body');
+      if (tbody) tbody.innerHTML = renderMutasiRows(mutasiSearchQuery);
+    },
+
+    handleMasterSkuSuggest(query) {
+      const box = document.getElementById('brg-sku-suggest');
+      if (!box) return;
+      const q = String(query || '').trim().toLowerCase();
+      if (!q) {
+        box.classList.add('hidden');
+        box.innerHTML = '';
+        return;
+      }
+      const hits = db.barang.filter((b) =>
+        String(b.sku).toLowerCase().includes(q) ||
+        String(b.barcode || '').toLowerCase().includes(q) ||
+        String(b.nama).toLowerCase().includes(q)
+      ).slice(0, 5);
+      if (hits.length === 0) {
+        box.classList.add('hidden');
+        box.innerHTML = '';
+        return;
+      }
+      box.innerHTML = `<div class="text-[10px] text-amber-300 font-bold px-1">⚠️ Barang serupa sudah terdaftar (klik untuk Edit agar tidak duplikat):</div>` +
+        hits.map((b) => `
+          <button type="button" onclick="window.AZI.editMasterBarang('${escJs(b.sku)}')" class="w-full text-left px-2 py-1.5 rounded-lg hover:bg-slate-800 flex items-center justify-between gap-2 text-[11px]">
+            <span><b class="font-mono-num text-sky-400">${esc(b.sku)}</b> — ${esc(b.nama)}</span>
+            <span class="font-mono-num text-emerald-400">Stok ${getStokAkhir(b)}</span>
+          </button>
+        `).join('');
+      box.classList.remove('hidden');
+    },
+
+    checkMasterPriceMargin() {
+      const modal = Number((document.getElementById('brg-modal') || {}).value) || 0;
+      const jual = Number((document.getElementById('brg-jual') || {}).value) || 0;
+      const warn = document.getElementById('brg-margin-warn');
+      if (!warn) return;
+      if (jual === 0 && modal === 0) {
+        warn.classList.add('hidden');
+        return;
+      }
+      if (jual < modal) {
+        warn.className = 'p-2 rounded-lg bg-rose-950/70 border border-rose-500/50 text-[11px] font-bold text-rose-200';
+        warn.textContent = `⚠️ Peringatan Rugi: Harga Jual (${rp(jual)}) lebih rendah dari Harga Modal (${rp(modal)})! Selisih -${rp(modal - jual)}.`;
+      } else {
+        const margin = jual - modal;
+        const pct = modal > 0 ? Math.round((margin / modal) * 100) : 100;
+        warn.className = 'p-2 rounded-lg bg-emerald-950/50 border border-emerald-500/30 text-[11px] font-semibold text-emerald-300';
+        warn.textContent = `✅ Margin Laba: +${rp(margin)} (${pct}% dari modal).`;
+      }
+    },
+
+    resetMasterBarangForm() {
+      editingBarangSku = '';
+      const form = document.getElementById('form-master-barang');
+      if (form) form.reset();
+      const banner = document.getElementById('brg-edit-banner');
+      if (banner) banner.classList.add('hidden');
+      const sug = document.getElementById('brg-sku-suggest');
+      if (sug) { sug.classList.add('hidden'); sug.innerHTML = ''; }
+      const warn = document.getElementById('brg-margin-warn');
+      if (warn) warn.classList.add('hidden');
+    },
+
+    recalcStockAdjPreview() {
+      const sku = (document.getElementById('adj-sku') || {}).value;
+      const jenis = (document.getElementById('adj-jenis') || {}).value;
+      const qty = Math.max(0, Number((document.getElementById('adj-qty') || {}).value) || 0);
+      const prevEl = document.getElementById('adj-preview');
+      const item = db.barang.find((b) => b.sku === sku);
+      if (!prevEl || !item) return;
+      const sekarang = getStokAkhir(item);
+      const sesudah = jenis === 'KELUAR' ? sekarang - qty : sekarang + qty;
+      if (sesudah < 0) {
+        prevEl.className = 'p-2 rounded-lg bg-rose-950/70 border border-rose-500/50 text-[11px] text-rose-200 font-mono-num font-bold';
+        prevEl.textContent = `❌ Ditolak: Stok saat ini ${sekarang}, dikurangi ${qty} akan menjadi minus (${sesudah})!`;
+      } else {
+        prevEl.className = 'p-2 rounded-lg bg-slate-900/90 border border-sky-500/30 text-[11px] text-sky-300 font-mono-num';
+        prevEl.textContent = `Pratinjau Stok: ${sekarang} -> ${sesudah} ${item.satuan} (${jenis === 'KELUAR' ? '-' : '+'}${qty})`;
+      }
+    },
+
     editMasterBarang(sku) {
       const b = db.barang.find((x) => x.sku === sku);
       if (!b) return;
+      editingBarangSku = b.sku;
       const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
       setVal('brg-sku', b.sku);
       setVal('brg-barcode', b.barcode === '-' ? '' : (b.barcode || ''));
@@ -3928,7 +4673,16 @@
       setVal('brg-min', b.stokMinimum);
       setVal('brg-pemasok', b.pemasok === '-' ? '' : (b.pemasok || ''));
       setVal('brg-catatan', b.catatan || '');
-      showToast(`Mode edit barang ${esc(b.sku)}. Ubah data lalu klik Simpan Data Barang.`, 'info');
+      const sug = document.getElementById('brg-sku-suggest');
+      if (sug) { sug.classList.add('hidden'); sug.innerHTML = ''; }
+      const banner = document.getElementById('brg-edit-banner');
+      if (banner) {
+        banner.classList.remove('hidden');
+        const bSpan = banner.querySelector('b');
+        if (bSpan) bSpan.textContent = b.sku;
+      }
+      this.checkMasterPriceMargin();
+      showToast(`Mode edit barang ${b.sku}. Ubah data lalu klik Simpan Data Barang.`, 'info');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     },
 
@@ -3997,6 +4751,7 @@
         }
         showToast(`Barang baru ${esc(sku)} ditambahkan!`, 'success');
       }
+      editingBarangSku = '';
       saveDatabase('SAVE_ITEM', sku, nama);
       renderApp();
     },
@@ -4039,23 +4794,88 @@
       renderApp();
     },
 
+    handlePembelianItemSearch(query) {
+      pbItemSearchQuery = String(query || '');
+      const box = document.getElementById('pb-item-suggest');
+      if (!box) return;
+      const q = pbItemSearchQuery.trim().toLowerCase();
+      if (!q) {
+        box.classList.add('hidden');
+        box.innerHTML = '';
+        return;
+      }
+      const hits = db.barang.filter((b) =>
+        String(b.sku).toLowerCase().includes(q) ||
+        String(b.barcode || '').toLowerCase().includes(q) ||
+        String(b.nama).toLowerCase().includes(q)
+      ).slice(0, 6);
+      box.innerHTML = hits.length
+        ? hits.map((b) => `
+            <button type="button" onclick="window.AZI.selectPembelianItem('${escJs(b.sku)}')" class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-slate-800 flex items-center justify-between gap-2 text-xs">
+              <div class="min-w-0">
+                <span class="font-mono-num font-bold text-sky-400">${esc(b.sku)}</span>
+                <span class="text-white font-semibold ml-1">${esc(b.nama)}</span>
+              </div>
+              <div class="text-right shrink-0 font-mono-num text-[10px]">
+                <div class="text-emerald-400">Stok: ${getStokAkhir(b)}</div>
+                <div class="text-amber-300">Modal: ${rp(b.hargaModal)}</div>
+              </div>
+            </button>
+          `).join('')
+        : `<div class="p-2 text-center text-[11px] text-slate-400">Barang tidak ditemukan. Tambah dulu di menu Barang & Stok.</div>`;
+      box.classList.remove('hidden');
+    },
+
+    selectPembelianItem(sku) {
+      pbSelectedSku = sku;
+      pbItemSearchQuery = '';
+      const inp = document.getElementById('pb-item-search');
+      const box = document.getElementById('pb-item-suggest');
+      const sel = document.getElementById('pb-sku');
+      if (inp) inp.value = '';
+      if (box) { box.classList.add('hidden'); box.innerHTML = ''; }
+      if (sel) sel.value = sku;
+      this.onPembelianItemChange(sku);
+    },
+
+    filterPembelianHistory(query) {
+      pembelianSearchQuery = String(query || '');
+      const tbody = document.getElementById('pb-history-tbody');
+      if (tbody) tbody.innerHTML = renderPembelianHistoryRows(pembelianSearchQuery);
+    },
+
     onPembelianItemChange(sku) {
+      pbSelectedSku = sku;
       const item = db.barang.find((b) => b.sku === sku);
       const hargaEl = document.getElementById('pb-harga');
+      const pemasokEl = document.getElementById('pb-pemasok');
       if (item && hargaEl) {
         hargaEl.value = Number(item.hargaModal) || 0;
+        if (pemasokEl && item.pemasok && item.pemasok !== '-') {
+          pemasokEl.value = item.pemasok;
+        }
         this.recalcPembelianTotal(true);
       }
     },
 
     recalcPembelianTotal(syncPaid) {
+      const sku = (document.getElementById('pb-sku') || {}).value;
+      const item = db.barang.find((b) => b.sku === sku);
       const qty = Math.max(0, Number((document.getElementById('pb-qty') || {}).value) || 0);
       const harga = Math.max(0, Number((document.getElementById('pb-harga') || {}).value) || 0);
       const total = qty * harga;
       const totalEl = document.getElementById('pb-total-preview');
+      const stockEl = document.getElementById('pb-stock-preview');
       const dibayarEl = document.getElementById('pb-dibayar');
       const utangEl = document.getElementById('pb-utang-preview');
       if (totalEl) totalEl.textContent = rp(total);
+      if (stockEl && item) {
+        const stokLama = Math.max(0, getStokAkhir(item));
+        const modalBaru = (stokLama + qty) > 0
+          ? Math.round((stokLama * (Number(item.hargaModal) || 0) + qty * harga) / (stokLama + qty))
+          : harga;
+        stockEl.textContent = `Pratinjau Stok: ${stokLama} -> ${stokLama + qty} ${item.satuan} | Modal Rata-rata Baru: ${rp(modalBaru)}`;
+      }
       if (syncPaid && dibayarEl) dibayarEl.value = total;
       const dibayar = Math.max(0, Number((dibayarEl || {}).value) || 0);
       const sisa = Math.max(0, total - Math.min(total, dibayar));
@@ -4149,22 +4969,38 @@
       }
 
       saveDatabase('CREATE_PURCHASE', noPb, `Masuk ${qty} ${item.nama}`);
-      showToast(`Pembelian ${noPb} tersimpan! Stok bertambah ${qty} ${esc(item.satuan)}.`, 'success');
+      showToast(`Pembelian ${noPb} tersimpan! Stok bertambah ${qty} ${item.satuan}.`, 'success');
       renderApp();
+      openReceiptModal('PEMBELIAN', noPb);
     },
 
     // ========================================================================
-    // PELUNASAN PIUTANG / UTANG (BAB 09 — LENGKAP DENGAN Pembayaran_Tagihan)
+    // PELUNASAN PIUTANG / UTANG (BAB 09 — LIVE SEARCH + QUICK PAY + PREVIEW)
     // ========================================================================
+    filterPembayaranView(query) {
+      pembayaranSearchQuery = String(query || '');
+      const wrap = document.getElementById('pembayaran-content-wrap');
+      if (wrap) wrap.innerHTML = renderPembayaranSectionsHtml(pembayaranSearchQuery);
+    },
+
     openPayModal(jenis, noRef, sisa) {
+      const sisaNum = Number(sisa) || 0;
+      const halfNum = Math.ceil(sisaNum / 2);
       openModal(`
         <div class="glass-card rounded-2xl p-6 max-w-sm w-full space-y-3 text-xs">
           <h3 class="text-sm font-extrabold text-white">Catat Pelunasan ${esc(noRef)}</h3>
-          <p class="text-slate-300">Sisa Tagihan Saat Ini: <b class="text-rose-400 font-mono-num">${rp(sisa)}</b></p>
-          <form onsubmit="window.AZI.submitPelunasan(event, '${escJs(jenis)}', '${escJs(noRef)}', ${Number(sisa) || 0})" class="space-y-3">
+          <p class="text-slate-300">Sisa Tagihan Saat Ini: <b class="text-rose-400 font-mono-num">${rp(sisaNum)}</b></p>
+          <form onsubmit="window.AZI.submitPelunasan(event, '${escJs(jenis)}', '${escJs(noRef)}', ${sisaNum})" class="space-y-3">
             <div>
-              <label class="block text-[10px] text-slate-400 mb-1">Nominal Pembayaran (Rp) *</label>
-              <input id="pay-nominal" type="number" min="1" max="${Number(sisa) || 0}" required value="${Number(sisa) || 0}" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-emerald-500/50 text-emerald-300 font-mono-num font-bold" />
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-[10px] text-slate-400">Nominal Pembayaran (Rp) *</label>
+                <div class="flex gap-1">
+                  <button type="button" onclick="window.AZI.setPayQuickNominal(${halfNum}, ${sisaNum})" class="px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 font-bold text-[10px]">50%</button>
+                  <button type="button" onclick="window.AZI.setPayQuickNominal(${sisaNum}, ${sisaNum})" class="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold text-[10px]">Lunas 100%</button>
+                </div>
+              </div>
+              <input id="pay-nominal" type="number" min="1" max="${sisaNum}" required value="${sisaNum}" oninput="window.AZI.recalcPayRemaining(${sisaNum})" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-emerald-500/50 text-emerald-300 font-mono-num font-bold" />
+              <div id="pay-remain-preview" class="mt-1 text-[10px] text-emerald-400 font-mono-num">Sisa setelah bayar: Rp0 (LUNAS)</div>
             </div>
             <div>
               <label class="block text-[10px] text-slate-400 mb-1">Akun Kas / Bank *</label>
@@ -4181,6 +5017,26 @@
           </form>
         </div>
       `);
+    },
+
+    setPayQuickNominal(nom, sisaMaks) {
+      const el = document.getElementById('pay-nominal');
+      if (el) el.value = nom;
+      this.recalcPayRemaining(sisaMaks);
+    },
+
+    recalcPayRemaining(sisaMaks) {
+      const nom = Math.max(0, Number((document.getElementById('pay-nominal') || {}).value) || 0);
+      const prev = document.getElementById('pay-remain-preview');
+      if (!prev) return;
+      if (nom > sisaMaks) {
+        prev.className = 'mt-1 text-[10px] text-rose-400 font-mono-num font-bold';
+        prev.textContent = `❌ Melebihi sisa tagihan (${rp(sisaMaks)})!`;
+      } else {
+        const sisaAkhir = Math.max(0, sisaMaks - nom);
+        prev.className = sisaAkhir === 0 ? 'mt-1 text-[10px] text-emerald-400 font-mono-num font-bold' : 'mt-1 text-[10px] text-amber-300 font-mono-num';
+        prev.textContent = sisaAkhir === 0 ? 'Sisa setelah bayar: Rp0 (LUNAS)' : `Sisa setelah bayar: ${rp(sisaAkhir)} (Sebagian)`;
+      }
     },
 
     submitPelunasan(e, jenis, noRef, sisaMaks) {
@@ -4317,6 +5173,12 @@
     // ========================================================================
     // KAS & MODAL (BAB 12)
     // ========================================================================
+    filterKasHistory(query) {
+      kasSearchQuery = String(query || '');
+      const tbody = document.getElementById('kas-history-tbody');
+      if (tbody) tbody.innerHTML = renderKasHistoryRows(kasSearchQuery);
+    },
+
     toggleKasTransferUI() {
       const katEl = document.getElementById('kas-kategori');
       const asalWrap = document.getElementById('kas-asal-wrap');
@@ -4371,8 +5233,100 @@
     },
 
     // ========================================================================
-    // RETUR & KOREKSI (BAB 13 — STOK RIWAYAT + REFUND KAS / POTONG TAGIHAN)
+    // RETUR & KOREKSI (BAB 13 — AUTO-SEARCH TRANSAKSI ASAL + ANTI SALAH KETIK)
     // ========================================================================
+    handleReturRefSearch(query) {
+      const box = document.getElementById('ret-ref-suggest');
+      const badge = document.getElementById('ret-ref-badge');
+      const jenisEl = document.getElementById('ret-jenis');
+      if (!box || !jenisEl) return;
+      const jenis = jenisEl.value;
+      const q = String(query || '').trim().toLowerCase();
+
+      const sourceList = jenis === 'Retur Penjualan'
+        ? db.penjualan.filter((p) => p.statusDokumen === 'Final')
+        : db.pembelian;
+
+      const exact = sourceList.find((x) => String(x.no).toLowerCase() === q);
+      if (badge) {
+        if (!q) {
+          badge.className = 'mt-1 text-[10px] text-slate-400';
+          badge.textContent = 'Ketik nomor transaksi untuk memilih otomatis tanpa salah ketik.';
+        } else if (exact) {
+          badge.className = 'mt-1 text-[10px] text-emerald-400 font-bold';
+          badge.textContent = `✅ Transaksi ${exact.no} terverifikasi (${exact.pelanggan || exact.pemasok} — Total ${rp(exact.totalAkhir !== undefined ? exact.totalAkhir : exact.total)})`;
+        } else {
+          badge.className = 'mt-1 text-[10px] text-amber-300 font-semibold';
+          badge.textContent = '⚠️ Pilih salah satu transaksi yang muncul di daftar agar nomor pasti valid.';
+        }
+      }
+
+      if (!q) {
+        box.classList.add('hidden');
+        box.innerHTML = '';
+        return;
+      }
+
+      const hits = sourceList.filter((x) => {
+        const who = x.pelanggan || x.pemasok || '';
+        const itemTxt = (x.items || []).map((i) => `${i.sku} ${i.nama}`).join(' ').toLowerCase();
+        return String(x.no).toLowerCase().includes(q) || who.toLowerCase().includes(q) || itemTxt.includes(q);
+      }).slice(0, 6);
+
+      box.innerHTML = hits.length
+        ? hits.map((x) => {
+            const firstItem = (x.items || [])[0] || {};
+            const total = x.totalAkhir !== undefined ? x.totalAkhir : x.total;
+            const who = x.pelanggan || x.pemasok || '-';
+            return `
+              <button type="button" onclick="window.AZI.selectReturTransaction('${escJs(x.no)}')" class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-slate-800 flex items-center justify-between gap-2 text-xs">
+                <div class="min-w-0">
+                  <span class="font-mono-num font-bold text-amber-300">${esc(x.no)}</span>
+                  <span class="text-white font-semibold ml-1">${esc(who)}</span>
+                  <div class="text-[10px] text-slate-400 truncate">${esc(firstItem.nama || '-')} (${firstItem.qty || 1}x)</div>
+                </div>
+                <div class="text-right shrink-0 font-mono-num text-[10px]">
+                  <div class="text-emerald-300 font-bold">${rp(total)}</div>
+                  <div class="text-sky-300">${esc(x.statusBayar || '')}</div>
+                </div>
+              </button>
+            `;
+          }).join('')
+        : `<div class="p-2 text-center text-[11px] text-rose-300">Nomor transaksi "${esc(query)}" tidak ditemukan pada data ${esc(jenis)}.</div>`;
+      box.classList.remove('hidden');
+    },
+
+    selectReturTransaction(noRef) {
+      const jenis = (document.getElementById('ret-jenis') || {}).value;
+      const trx = jenis === 'Retur Penjualan'
+        ? db.penjualan.find((p) => p.no === noRef)
+        : db.pembelian.find((pb) => pb.no === noRef);
+      const refEl = document.getElementById('ret-noref');
+      const box = document.getElementById('ret-ref-suggest');
+      if (refEl) refEl.value = noRef;
+      if (box) { box.classList.add('hidden'); box.innerHTML = ''; }
+      if (!trx) return;
+
+      const firstItem = (trx.items || [])[0];
+      const skuEl = document.getElementById('ret-sku');
+      const qtyEl = document.getElementById('ret-qty');
+      const nomEl = document.getElementById('ret-nominal');
+      const metEl = document.getElementById('ret-metode');
+      if (firstItem && skuEl) skuEl.value = firstItem.sku;
+      if (qtyEl) qtyEl.value = 1;
+      if (nomEl) {
+        const unitPrice = firstItem ? (Number(firstItem.hargaJual !== undefined ? firstItem.hargaJual : firstItem.hargaBeli) || 0) : 0;
+        nomEl.value = unitPrice;
+      }
+      if (metEl) {
+        const hasUnpaid = (Number(trx.sisaPiutang) || Number(trx.sisaUtang) || 0) > 0;
+        metEl.value = hasUnpaid ? 'Potong Tagihan' : 'Refund Kas';
+      }
+      this.handleReturRefSearch(noRef);
+      if (box) box.classList.add('hidden');
+      showToast(`Data transaksi ${noRef} otomatis terisi! Cek jumlah & alasan retur.`, 'success');
+    },
+
     submitRetur(e) {
       e.preventDefault();
       if (!currentUser.akses.batal_retur_refund && currentUser.jabatan !== 'Pemilik') {
@@ -4921,20 +5875,41 @@
       if (activeMenu === 'pengaturan') renderApp();
     },
 
-    async printCurrentReceiptBluetooth() {
-      if (!lastReceiptBlePayload) {
-        window.print();
+    async printCurrentReceiptBluetooth(copies = 1) {
+      const payload = copies === 2 ? (lastReceiptBleCopy2 || lastReceiptBlePayload) : lastReceiptBlePayload;
+      if (!payload) {
+        this.printSystemReceipt(copies);
         return;
       }
       if (!bluetoothCharacteristic || bluetoothStatus !== 'connected') {
         const connected = await this.connectBluetoothPrinter();
         if (!connected) {
           showToast('Membuka dialog Cetak Sistem sebagai metode cadangan...', 'info');
-          window.print();
+          this.printSystemReceipt(copies);
           return;
         }
       }
-      await this.printViaBluetooth(lastReceiptBlePayload);
+      if (lastReceiptMeta) {
+        saveDatabase('PRINT_RECEIPT_BT', lastReceiptMeta.refNo, `${lastReceiptMeta.docType} (${copies}x Bluetooth)`);
+      }
+      await this.printViaBluetooth(payload);
+    },
+
+    printSystemReceipt(copies = 1) {
+      const area = document.getElementById('thermal-print-area');
+      const cleanup = () => {
+        const el = document.getElementById('thermal-print-area');
+        if (el) el.classList.remove('print-mode-2x');
+      };
+      if (area) {
+        if (copies === 2) area.classList.add('print-mode-2x');
+        else area.classList.remove('print-mode-2x');
+      }
+      if (lastReceiptMeta) {
+        saveDatabase('PRINT_RECEIPT_SYS', lastReceiptMeta.refNo, `${lastReceiptMeta.docType} (${copies}x Sistem/PDF)`);
+      }
+      window.addEventListener('afterprint', cleanup, { once: true });
+      window.print();
     },
 
     async printViaBluetooth(rawText) {
@@ -5426,6 +6401,28 @@
     if (!root) return;
     root.innerHTML = currentUser ? renderMainLayout() : renderLoginView();
   }
+
+  // Tutup dropdown auto-search saat klik di luar kotak pencarian
+  document.addEventListener('click', (e) => {
+    const t = e.target;
+    if (!t || !t.closest) return;
+    if (!t.closest('#global-quick-search') && !t.closest('#global-search-dropdown')) {
+      const box = document.getElementById('global-search-dropdown');
+      if (box) box.classList.add('hidden');
+    }
+    if (!t.closest('#pb-item-search') && !t.closest('#pb-item-suggest')) {
+      const box = document.getElementById('pb-item-suggest');
+      if (box) box.classList.add('hidden');
+    }
+    if (!t.closest('#ret-noref') && !t.closest('#ret-ref-suggest')) {
+      const box = document.getElementById('ret-ref-suggest');
+      if (box) box.classList.add('hidden');
+    }
+    if (!t.closest('#brg-sku') && !t.closest('#brg-barcode') && !t.closest('#brg-sku-suggest')) {
+      const box = document.getElementById('brg-sku-suggest');
+      if (box) box.classList.add('hidden');
+    }
+  });
 
   // Jalankan aplikasi & pengecekan Auto-Update Service Worker
   initServiceWorkerAndAutoUpdate();

@@ -20,7 +20,7 @@
 
 // [WAJIB GANTI KE ID SPREADSHEET PEMILIK SAAT SERAH TERIMA APLIKASI]
 const SPREADSHEET_ID = '1WH_nBZ7vsXp2lurFDKZV7TL1pqnrfLD27cax85m4-d8';
-const BACKEND_VERSION = '1.0.3';
+const BACKEND_VERSION = '1.0.4';
 // Keamanan: kunci target hanya ke SPREADSHEET_ID pemilik agar tidak bisa dialihkan pihak luar
 const ALLOW_CUSTOM_SPREADSHEET_ID = false;
 
