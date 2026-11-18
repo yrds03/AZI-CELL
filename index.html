@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="id" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#060B19" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Azi Cell" />
+  <title>AZI CELL — Executive POS & Service System</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/png" href="icon-192.png" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: radial-gradient(circle at 15% 15%, rgba(56, 189, 248, 0.12), transparent 38%),
+                  radial-gradient(circle at 85% 20%, rgba(245, 158, 11, 0.11), transparent 35%),
+                  radial-gradient(circle at 50% 90%, rgba(99, 102, 241, 0.10), transparent 45%),
+                  #050914;
+      color: #F8FAFC;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    .font-mono-num {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .glass-card {
+      background: rgba(15, 23, 42, 0.72);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+    }
+    .glass-panel {
+      background: linear-gradient(145deg, rgba(30, 41, 59, 0.65), rgba(15, 23, 42, 0.85));
+      border: 1px solid rgba(255, 255, 255, 0.09);
+    }
+    .gold-gradient-text {
+      background: linear-gradient(135deg, #FDE68A 0%, #F59E0B 50%, #38BDF8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .btn-luxury {
+      background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+      color: #050914;
+      font-weight: 700;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 0 8px 25px -4px rgba(245, 158, 11, 0.45);
+    }
+    .btn-luxury:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 30px -4px rgba(245, 158, 11, 0.65);
+    }
+    .btn-cyber {
+      background: linear-gradient(135deg, #0EA5E9 0%, #2563EB 100%);
+      color: #FFFFFF;
+      font-weight: 700;
+      transition: all 0.2s ease;
+      box-shadow: 0 8px 25px -4px rgba(14, 165, 233, 0.4);
+    }
+    .btn-cyber:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 28px -4px rgba(14, 165, 233, 0.6);
+    }
+    /* Indikator Bluetooth Printer Pojok Kanan Atas */
+    .bt-pill-disconnected {
+      background: rgba(244, 63, 94, 0.16);
+      border: 1px solid rgba(244, 63, 94, 0.65);
+      color: #FECDD3;
+      box-shadow: 0 0 18px rgba(244, 63, 94, 0.25);
+    }
+    .bt-pill-disconnected:hover {
+      background: rgba(244, 63, 94, 0.28);
+    }
+    .bt-pill-connecting {
+      background: rgba(245, 158, 11, 0.18);
+      border: 1px solid rgba(245, 158, 11, 0.65);
+      color: #FDE68A;
+      box-shadow: 0 0 18px rgba(245, 158, 11, 0.25);
+    }
+    .bt-pill-connected {
+      background: rgba(16, 185, 129, 0.18);
+      border: 1px solid rgba(16, 185, 129, 0.7);
+      color: #A7F3D0;
+      box-shadow: 0 0 18px rgba(16, 185, 129, 0.3);
+    }
+    .bt-pill-connected:hover {
+      background: rgba(16, 185, 129, 0.28);
+    }
+    /* Animasi Loading Muter Update Otomatis */
+    @keyframes spinSlow {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    @keyframes spinReverse {
+      0% { transform: rotate(360deg); }
+      100% { transform: rotate(0deg); }
+    }
+    .spinner-outer {
+      width: 84px;
+      height: 84px;
+      border-radius: 50%;
+      border: 4px solid rgba(245, 158, 11, 0.15);
+      border-top-color: #F59E0B;
+      border-right-color: #38BDF8;
+      animation: spinSlow 0.9s linear infinite;
+    }
+    .spinner-inner {
+      width: 58px;
+      height: 58px;
+      border-radius: 50%;
+      border: 4px solid rgba(56, 189, 248, 0.15);
+      border-bottom-color: #38BDF8;
+      border-left-color: #FDE68A;
+      animation: spinReverse 0.65s linear infinite;
+    }
+    /* Kertas Thermal 58mm & 80mm */
+    .receipt-58mm {
+      width: 280px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      line-height: 1.38;
+    }
+    .receipt-80mm {
+      width: 360px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      line-height: 1.42;
+    }
+    @page {
+      margin: 2mm;
+    }
+    @media print {
+      html, body {
+        background: #FFFFFF !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      #app-root, #toast-container, #sw-update-overlay {
+        display: none !important;
+      }
+      #modal-root {
+        position: static !important;
+        display: block !important;
+        background: #FFFFFF !important;
+        padding: 0 !important;
+        margin: 0 !important;
+      }
+      body * {
+        visibility: hidden !important;
+      }
+      #thermal-print-area, #thermal-print-area * {
+        visibility: visible !important;
+      }
+      #thermal-print-area {
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        background: #FFFFFF !important;
+        color: #000000 !important;
+        box-shadow: none !important;
+        border-radius: 0 !important;
+        padding: 4px !important;
+        margin: 0 !important;
+      }
+    }
+  </style>
+</head>
+<body class="antialiased selection:bg-amber-500 selection:text-slate-950">
+
+  <!-- ===================================================================== -->
+  <!-- OVERLAY LOADING MUTER OTOMATIS SAAT SW.JS ADA UPDATE BARU DI GITHUB   -->
+  <!-- ===================================================================== -->
+  <div id="sw-update-overlay" class="fixed inset-0 z-[9999] hidden flex-col items-center justify-center bg-slate-950/95 backdrop-blur-xl px-6 text-center">
+    <div class="relative flex items-center justify-center mb-6">
+      <div class="spinner-outer"></div>
+      <div class="spinner-inner absolute"></div>
+      <div class="absolute w-3 h-3 rounded-full bg-amber-400 animate-ping"></div>
+    </div>
+    <span class="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-widest bg-amber-500/20 text-amber-300 border border-amber-500/30 mb-3">
+      Auto-Sync System Update
+    </span>
+    <h2 id="sw-update-title" class="text-xl sm:text-2xl font-extrabold text-white mb-2">
+      Memperbarui Aplikasi Azi Cell...
+    </h2>
+    <p id="sw-update-desc" class="text-sm text-slate-300 max-w-md mb-6">
+      Sistem mendeteksi pembaruan terbaru dari server. Mohon tunggu sebentar, sedang menyelaraskan modul & cache...
+    </p>
+    <div class="w-64 h-2 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+      <div id="sw-update-bar" class="h-full bg-gradient-to-r from-amber-400 via-sky-400 to-indigo-500 transition-all duration-300" style="width: 35%"></div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION (Diturunkan sedikit agar tidak menutupi tombol Bluetooth pojok kanan atas) -->
+  <div id="toast-container" class="fixed top-16 sm:top-20 right-4 z-[9000] flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4 sm:px-0"></div>
+
+  <!-- ROOT APP CONTAINER -->
+  <div id="app-root" class="min-h-screen flex flex-col"></div>
+
+  <!-- MODAL CONTAINER (UNTUK NOTA, PANDUAN INSTAL, DETAIL SERVIS, PRINTER BT, DLL) -->
+  <div id="modal-root" class="fixed inset-0 z-[8000] hidden items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 overflow-y-auto"></div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
