@@ -20,7 +20,7 @@
 
 // [WAJIB GANTI KE ID SPREADSHEET PEMILIK SAAT SERAH TERIMA APLIKASI]
 const SPREADSHEET_ID = '1WH_nBZ7vsXp2lurFDKZV7TL1pqnrfLD27cax85m4-d8';
-const BACKEND_VERSION = '1.0.5';
+const BACKEND_VERSION = '1.0.6';
 // Keamanan: kunci target hanya ke SPREADSHEET_ID pemilik agar tidak bisa dialihkan pihak luar
 const ALLOW_CUSTOM_SPREADSHEET_ID = false;
 
@@ -244,9 +244,9 @@ function setupDatabaseOtomatis(customSpreadsheetId) {
     shPengaturan.getRange(2, 1, 8, SHEET_SCHEMA.Pengaturan.length).setValues([
       ['SPREADSHEET_ID_PEMILIK', ss.getId(), 'WAJIB GANTI KE ID SPREADSHEET PEMILIK SAAT SERAH TERIMA', 'owner', now],
       ['NAMA_TOKO', 'AZI CELL', 'Nama Toko pada Header Nota & Aplikasi', 'owner', now],
-      ['TAGLINE_TOKO', 'Pusat Penjualan Gadget, Aksesoris & Servis Profesional', 'Tagline pada Halaman Login & Header', 'owner', now],
-      ['ALAMAT_TOKO', 'Jl. Raya Utama No. 1, Pusat Kota', 'Alamat Toko pada Struk Thermal', 'owner', now],
-      ['KONTAK_TOKO', '0812-3456-7890', 'Nomor WA / Kontak Toko', 'owner', now],
+      ['TAGLINE_TOKO', 'Servis Hp Apple & Android — Software, Hardware & Aksesoris', 'Tagline pada Halaman Login & Header', 'owner', now],
+      ['ALAMAT_TOKO', 'Jl. Pala Raya Sibata Mejasem Barat Kec. Kramat, Kode Pos 52181', 'Alamat Toko pada Struk Thermal', 'owner', now],
+      ['KONTAK_TOKO', '08988522290', 'Nomor WA / Kontak Toko', 'owner', now],
       ['ZONA_WAKTU', 'Asia/Jakarta', 'Zona Waktu Operasional', 'owner', now],
       ['LEBAR_PRINTER', '58mm', 'Ukuran Kertas Printer Thermal (58mm / 80mm)', 'owner', now],
       ['FOOTER_NOTA', 'Terima kasih atas kepercayaan Anda di Azi Cell.\nBarang yang sudah dibeli tidak dapat ditukar kecuali ada perjanjian garansi.', 'Catatan Footer Struk Thermal', 'owner', now]

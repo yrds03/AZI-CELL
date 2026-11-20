@@ -14,7 +14,7 @@
  */
 window.AZI_CONFIG = {
   // Naikkan versi ini setiap kali update agar sinkron dengan sw.js
-  APP_VERSION: "1.0.5",
+  APP_VERSION: "1.0.6",
 
   // ==========================================================================
   // [WAJIB GANTI KE PEMILIK APLIKASI SAAT HANDOVER / SERAH TERIMA]
@@ -26,14 +26,14 @@ window.AZI_CONFIG = {
   // Profil Default Toko (Dapat diubah langsung oleh Pemilik di menu Pengaturan)
   STORE_PROFILE: {
     namaToko: "AZI CELL",
-    tagline: "Pusat Penjualan Gadget, Aksesoris & Servis Profesional",
-    alamat: "Jl. Raya Utama No. 1, Pusat Kota",
-    kontak: "0812-3456-7890",
+    tagline: "Servis Hp Apple & Android — Software, Hardware & Aksesoris",
+    alamat: "Jl. Pala Raya Sibata Mejasem Barat Kec. Kramat, Kode Pos 52181",
+    kontak: "08988522290",
     mataUang: "IDR",
     zonaWaktu: "Asia/Jakarta",
     logoUrl: "logo1.png",
     lebarPrinter: "58mm",
-    footerNota: "Terima kasih atas kepercayaan Anda di Azi Cell.\nBarang yang sudah dibeli tidak dapat ditukar kecuali ada perjanjian garansi."
+    footerNota: "PERHATIAN:\n- Pengambilan barang tanpa disertai nota servis tidak dilayani\n- Garansi tidak berlaku apabila nota hilang\n- Jika dalam waktu 1 bulan unit tidak diambil, kehilangan bukan tanggung jawab kami\n- Kami tidak bertanggung jawab atas kerusakan lain di luar keluhan yang tertera di nota"
   },
 
   // Daftar 12 Sheet Otomatis & Kolom Header Standar Azi Cell (Sinkron 100% dengan Code.gs)

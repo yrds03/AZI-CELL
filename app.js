@@ -280,6 +280,199 @@
     };
   }
 
+  // ==========================================================================
+  // HELPER CEKLIST KELENGKAPAN SERVIS, KETIKAN OPSIONAL, SANDI & POLA 3x3
+  // ==========================================================================
+  const SERVICE_CHECKLIST_ITEMS = ['Unit Only', 'Simcard', 'Memory', 'Softcase'];
+
+  function extractPatternPoints(raw) {
+    const digits = String(raw || '').match(/[1-9]/g) || [];
+    const out = [];
+    digits.forEach((d) => {
+      const n = Number(d);
+      if (!out.includes(n)) out.push(n);
+    });
+    return out;
+  }
+
+  function normalizePatternString(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return '';
+    const pts = extractPatternPoints(s);
+    if (pts.length > 0 && /^[\d\s,.\->/]+$/.test(s)) {
+      return pts.join('-');
+    }
+    return s;
+  }
+
+  function packServiceKelengkapan(opts = {}) {
+    const rawItems = Array.isArray(opts.items) ? opts.items : [];
+    const validItems = SERVICE_CHECKLIST_ITEMS.filter((it) =>
+      rawItems.some((r) => String(r).toLowerCase() === it.toLowerCase())
+    );
+    const lainnya = String(opts.lainnya || '').trim();
+    const sandi = String(opts.sandi || '').trim();
+    const pola = normalizePatternString(opts.pola || '');
+    const finalItems = validItems.length ? validItems : (lainnya ? [] : ['Unit Only']);
+
+    const parts = [];
+    if (finalItems.length) parts.push('Ceklist: ' + finalItems.join(', '));
+    if (lainnya) parts.push('Lainnya: ' + lainnya);
+    if (sandi) parts.push('Sandi: ' + sandi);
+    if (pola) parts.push('Pola: ' + pola);
+    return parts.join(' | ') || 'Ceklist: Unit Only';
+  }
+
+  function parseServiceExtra(sOrStr) {
+    const isObj = sOrStr && typeof sOrStr === 'object';
+    const rawStr = String(isObj ? (sOrStr.kelengkapan || '') : (sOrStr || '')).trim();
+    let items = isObj && Array.isArray(sOrStr.kelengkapanItems) ? [...sOrStr.kelengkapanItems] : [];
+    let lainnya = isObj && sOrStr.kelengkapanLainnya !== undefined ? String(sOrStr.kelengkapanLainnya || '') : '';
+    let sandi = isObj && sOrStr.sandi !== undefined ? String(sOrStr.sandi || '') : '';
+    let pola = isObj && sOrStr.pola !== undefined ? String(sOrStr.pola || '') : '';
+
+    if (rawStr) {
+      if (rawStr.includes('Ceklist:') || rawStr.includes('Lainnya:') || rawStr.includes('Sandi:') || rawStr.includes('Pola:')) {
+        const segs = rawStr.split('|').map((x) => x.trim());
+        segs.forEach((seg) => {
+          if (/^Ceklist\s*:/i.test(seg)) {
+            const val = seg.replace(/^Ceklist\s*:/i, '').trim();
+            const parsedItems = val.split(',').map((x) => x.trim()).filter(Boolean);
+            items = SERVICE_CHECKLIST_ITEMS.filter((it) =>
+              parsedItems.some((p) => p.toLowerCase() === it.toLowerCase())
+            );
+          } else if (/^Lainnya\s*:/i.test(seg)) {
+            if (!lainnya) lainnya = seg.replace(/^Lainnya\s*:/i, '').trim();
+          } else if (/^Sandi\s*:/i.test(seg)) {
+            if (!sandi) sandi = seg.replace(/^Sandi\s*:/i, '').trim();
+          } else if (/^Pola\s*:/i.test(seg)) {
+            if (!pola) pola = seg.replace(/^Pola\s*:/i, '').trim();
+          }
+        });
+      } else if (!items.length && !lainnya) {
+        // Kompatibilitas data servis lama (teks bebas)
+        const low = rawStr.toLowerCase();
+        const detected = [];
+        if (low.includes('unit only') || low.includes('unit saja')) detected.push('Unit Only');
+        if (low.includes('simcard') || low.includes('sim card') || /\bsim\b/.test(low)) detected.push('Simcard');
+        if (low.includes('memory') || low.includes('memori') || low.includes('mmc') || low.includes('sd card')) detected.push('Memory');
+        if (low.includes('softcase') || low.includes('case') || low.includes('silikon') || low.includes('casing')) detected.push('Softcase');
+        if (detected.length) {
+          items = detected;
+        } else if (rawStr !== '-') {
+          items = ['Unit Only'];
+          lainnya = rawStr;
+        }
+      }
+    }
+
+    if (!items.length && !lainnya) items = ['Unit Only'];
+    pola = normalizePatternString(pola);
+    const polaPoints = extractPatternPoints(pola);
+    const kelengkapanText = [
+      items.length ? items.join(', ') : '',
+      lainnya ? `Lainnya: ${lainnya}` : ''
+    ].filter(Boolean).join(' • ') || 'Unit Only';
+
+    return {
+      items,
+      lainnya,
+      sandi,
+      pola,
+      polaPoints,
+      kelengkapanText
+    };
+  }
+
+  // Render SVG Grid Pola 3x3 (9 Titik Lingkaran + Jalur Garis & Nomor Urut)
+  function renderPatternSvgGrid(patternStr, size = 96) {
+    const pts = extractPatternPoints(patternStr);
+    const coords = {
+      1: { x: 20, y: 20 }, 2: { x: 50, y: 20 }, 3: { x: 80, y: 20 },
+      4: { x: 20, y: 50 }, 5: { x: 50, y: 50 }, 6: { x: 80, y: 50 },
+      7: { x: 20, y: 80 }, 8: { x: 50, y: 80 }, 9: { x: 80, y: 80 }
+    };
+    const polyPoints = pts.map((p) => `${coords[p].x},${coords[p].y}`).join(' ');
+    const circlesHtml = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => {
+      const c = coords[n];
+      const stepIdx = pts.indexOf(n);
+      const isHit = stepIdx !== -1;
+      const isStart = stepIdx === 0;
+      return `
+        <circle cx="${c.x}" cy="${c.y}" r="${isHit ? 10 : 8.5}" fill="${isHit ? (isStart ? '#9F1239' : '#D97706') : '#FFFFFF'}" stroke="${isHit ? '#881337' : '#9F1239'}" stroke-width="2" />
+        ${isHit
+          ? `<text x="${c.x}" y="${c.y + 3.5}" text-anchor="middle" font-size="10" font-weight="800" fill="#FFFFFF" font-family="JetBrains Mono, monospace">${stepIdx + 1}</text>`
+          : `<circle cx="${c.x}" cy="${c.y}" r="2" fill="#9F1239" opacity="0.45" />`}
+      `;
+    }).join('');
+
+    return `
+      <svg width="${size}" height="${size}" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" class="mx-auto block select-none">
+        ${pts.length > 1 ? `<polyline points="${polyPoints}" fill="none" stroke="#9F1239" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" />` : ''}
+        ${circlesHtml}
+      </svg>
+    `;
+  }
+
+  function buildAsciiPatternGrid(patternStr) {
+    const pts = extractPatternPoints(patternStr);
+    const cell = (n) => {
+      const idx = pts.indexOf(n);
+      return idx !== -1 ? `[${idx + 1}]` : `( )`;
+    };
+    return [
+      `  ${cell(1)}   ${cell(2)}   ${cell(3)}`,
+      `  ${cell(4)}   ${cell(5)}   ${cell(6)}`,
+      `  ${cell(7)}   ${cell(8)}   ${cell(9)}`
+    ];
+  }
+
+  function renderInteractivePatternPicker(scope, currentPolaStr) {
+    const pts = extractPatternPoints(currentPolaStr);
+    const coords = {
+      1: { x: 20, y: 20 }, 2: { x: 50, y: 20 }, 3: { x: 80, y: 20 },
+      4: { x: 20, y: 50 }, 5: { x: 50, y: 50 }, 6: { x: 80, y: 50 },
+      7: { x: 20, y: 80 }, 8: { x: 50, y: 80 }, 9: { x: 80, y: 80 }
+    };
+    const polyPoints = pts.map((p) => `${coords[p].x},${coords[p].y}`).join(' ');
+
+    return `
+      <div class="flex flex-col sm:flex-row items-center gap-3 p-2.5 rounded-xl bg-slate-900 border border-slate-700">
+        <div class="relative w-28 h-28 shrink-0 bg-white rounded-xl border-2 border-rose-800/40 shadow-inner p-1 select-none">
+          <svg viewBox="0 0 100 100" class="absolute inset-0 w-full h-full pointer-events-none">
+            ${pts.length > 1 ? `<polyline points="${polyPoints}" fill="none" stroke="#D97706" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />` : ''}
+          </svg>
+          <div class="relative z-10 grid grid-cols-3 grid-rows-3 w-full h-full place-items-center">
+            ${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => {
+              const stepIdx = pts.indexOf(n);
+              const isHit = stepIdx !== -1;
+              return `
+                <button
+                  type="button"
+                  onclick="window.AZI.toggleServicePatternDot('${scope}', ${n})"
+                  title="Titik Pola ${n}${isHit ? ' (Urutan ke-' + (stepIdx + 1) + ')' : ''}"
+                  class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-extrabold font-mono-num transition transform active:scale-90 ${isHit ? 'bg-amber-600 text-white ring-2 ring-amber-300 shadow' : 'bg-slate-100 hover:bg-amber-100 text-slate-600 border border-slate-400'}"
+                >${isHit ? (stepIdx + 1) : n}</button>
+              `;
+            }).join('')}
+          </div>
+        </div>
+        <div class="flex-1 w-full space-y-1.5 text-[11px]">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-slate-300">Pola Kunci Layar (Tap Titik 1-9)</span>
+            <button type="button" onclick="window.AZI.clearServicePattern('${scope}')" class="text-[10px] font-bold text-rose-400 hover:underline">↺ Reset Pola</button>
+          </div>
+          ${scope === 'new'
+            ? `<input id="srv-pola" type="text" value="${esc(currentPolaStr || '')}" oninput="window.AZI.setServicePatternText('new', this.value)" placeholder="Tap titik di kiri atau ketik (mis: 1-4-7-8-9)" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono-num text-xs" />`
+            : `<input id="upd-srv-pola" type="text" value="${esc(currentPolaStr || '')}" oninput="window.AZI.setServicePatternText('upd', this.value)" placeholder="Tap titik di kiri atau ketik (mis: 1-4-7-8-9)" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono-num text-xs" />`}
+          <div class="text-[10px] text-slate-400">
+            ${pts.length ? `Urutan Titik: <b class="text-amber-400 font-mono-num">${pts.join(' → ')}</b>` : 'Klik titik bulatan sesuai urutan tarikan pola HP pelanggan.'}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   function migrateDatabase(parsed) {
     const base = createInitialDatabase();
     const incomingCfg = parsed.config || {};
@@ -293,6 +486,16 @@
     }
     if (!mergedCfg.spreadsheetUrl && window.AZI_CONFIG.SPREADSHEET_URL) {
       mergedCfg.spreadsheetUrl = window.AZI_CONFIG.SPREADSHEET_URL;
+    }
+    // Upgrade alamat/kontak placeholder lama ke alamat asli nota toko jika belum diubah
+    if (!mergedCfg.alamat || mergedCfg.alamat === 'Jl. Raya Utama No. 1, Pusat Kota') {
+      mergedCfg.alamat = window.AZI_CONFIG.STORE_PROFILE.alamat;
+    }
+    if (!mergedCfg.kontak || mergedCfg.kontak === '0812-3456-7890') {
+      mergedCfg.kontak = window.AZI_CONFIG.STORE_PROFILE.kontak;
+    }
+    if (!mergedCfg.tagline || mergedCfg.tagline === 'Pusat Penjualan Gadget, Aksesoris & Servis Profesional') {
+      mergedCfg.tagline = window.AZI_CONFIG.STORE_PROFILE.tagline;
     }
     const merged = {
       config: mergedCfg,
@@ -318,7 +521,7 @@
       }
     });
 
-    // Normalisasi struktur servis lama agar kompatibel dengan multi-jasa & pelacakan potong stok per part
+    // Normalisasi struktur servis agar mendukung multi-jasa, checklist kelengkapan, sandi & pola 3x3
     merged.servis.forEach((s) => {
       if (!Array.isArray(s.spareparts)) s.spareparts = [];
       s.spareparts.forEach((sp) => {
@@ -327,6 +530,12 @@
       if (!Array.isArray(s.jasaItems)) {
         s.jasaItems = s.namaJasa ? [{ nama: s.namaJasa, biaya: Number(s.biayaJasa) || 0 }] : [];
       }
+      const extra = parseServiceExtra(s);
+      s.kelengkapanItems = extra.items;
+      s.kelengkapanLainnya = extra.lainnya;
+      s.sandi = extra.sandi;
+      s.pola = extra.pola;
+      s.kelengkapan = packServiceKelengkapan(extra);
     });
 
     return merged;
@@ -363,6 +572,11 @@
   let pbItemSearchQuery = '';
   let editingBarangSku = '';
   let editingServiceDraft = null;
+  let newSrvChecklist = ['Unit Only'];
+  let newSrvLainnya = '';
+  let newSrvSandi = '';
+  let newSrvPola = '';
+  let srvReceiptLayoutMode = 'official'; // 'official' (2 kolom persis nota asli) | 'thermal' (58mm/80mm)
   let lastReceiptBleCopy2 = null;
   let lastReceiptMeta = null;
   let pendingConfirmFn = null;
@@ -450,13 +664,13 @@
     const container = document.getElementById('toast-container');
     if (!container) return;
     const colors = {
-      success: 'border-emerald-500/50 bg-emerald-950/90 text-emerald-200',
-      error: 'border-rose-500/50 bg-rose-950/90 text-rose-200',
-      info: 'border-sky-500/50 bg-sky-950/90 text-sky-200',
-      warn: 'border-amber-500/50 bg-amber-950/90 text-amber-200'
+      success: 'border-emerald-500/60 bg-white/95 text-emerald-800 shadow-emerald-900/10',
+      error: 'border-rose-500/60 bg-white/95 text-rose-800 shadow-rose-900/10',
+      info: 'border-sky-500/60 bg-white/95 text-sky-800 shadow-sky-900/10',
+      warn: 'border-amber-500/60 bg-white/95 text-amber-800 shadow-amber-900/10'
     };
     const el = document.createElement('div');
-    el.className = `pointer-events-auto px-4 py-3 rounded-xl border backdrop-blur-lg shadow-2xl text-xs sm:text-sm font-semibold transition-all duration-300 ${colors[type] || colors.info}`;
+    el.className = `pointer-events-auto px-4 py-3 rounded-xl border-2 backdrop-blur-lg shadow-xl text-xs sm:text-sm font-bold transition-all duration-300 ${colors[type] || colors.info}`;
     el.textContent = String(msg || '');
     container.appendChild(el);
     setTimeout(() => {
@@ -1696,6 +1910,15 @@
               <div class="font-bold text-white">${esc(s.pelanggan)} (${esc(s.kontak)})</div>
               <div class="text-slate-300">${esc(s.merekModel)} • <span class="text-sky-300">${esc(s.jenisServis)}</span></div>
               <div class="text-[11px] text-slate-400">Keluhan: ${esc(s.keluhan)}</div>
+              ${(() => {
+                const ex = parseServiceExtra(s);
+                return `
+                  <div class="text-[10px] text-slate-400 mt-0.5">
+                    📦 Kelengkapan: <b class="text-slate-200">${esc(ex.kelengkapanText)}</b>
+                    ${(ex.sandi || ex.pola) ? `<span class="ml-1.5 text-amber-300 font-semibold">🔒 ${ex.sandi ? 'Sandi: ' + esc(ex.sandi) : ''}${ex.sandi && ex.pola ? ' | ' : ''}${ex.pola ? 'Pola: ' + esc(ex.pola) : ''}</span>` : ''}
+                  </div>
+                `;
+              })()}
               ${s.spareparts && s.spareparts.length > 0 ? `<div class="text-[10px] text-amber-300/90 mt-0.5">Part: ${esc(s.spareparts.map((sp) => `${sp.nama} (${sp.qty}x)`).join(', '))}</div>` : ''}
               ${s.namaJasa ? `<div class="text-[10px] text-sky-300/90">Jasa: ${esc(s.namaJasa)} (${rp(s.biayaJasa)})</div>` : ''}
             </div>
@@ -1756,7 +1979,54 @@
             </div>
             <input id="srv-jenis" type="text" required placeholder="Jenis Servis (mis: Ganti LCD + Pasang / IC / Matot) *" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white" />
             <textarea id="srv-keluhan" rows="2" required placeholder="Keluhan detail pelanggan *" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white"></textarea>
-            <input id="srv-kelengkapan" type="text" placeholder="Kondisi & Kelengkapan (mis: Unit saja, lecet casing)" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white" />
+
+            <!-- KELENGKAPAN BARANG YG DITINGGAL (MODE CEKLIST + KETIKAN OPSIONAL) -->
+            <div class="p-3 rounded-xl bg-slate-900 border border-slate-700 space-y-2">
+              <label class="block text-[10px] font-extrabold uppercase tracking-wider text-amber-400">
+                ☑️ Kelengkapan Barang yg Ditinggal (Mode Ceklist)
+              </label>
+              <div id="srv-checklist-wrap" class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                ${SERVICE_CHECKLIST_ITEMS.map((item) => {
+                  const checked = newSrvChecklist.includes(item);
+                  return `
+                    <button
+                      type="button"
+                      onclick="window.AZI.toggleServiceChecklist('new', '${escJs(item)}')"
+                      class="px-2.5 py-2 rounded-xl border text-left font-bold text-[11px] flex items-center gap-1.5 transition ${checked ? 'bg-amber-500/20 border-amber-500 text-amber-300 shadow-sm' : 'bg-slate-950 border-slate-700 text-slate-400 hover:bg-slate-800'}"
+                    >
+                      <span class="text-xs">${checked ? '☑️' : '⬜'}</span>
+                      <span class="truncate">${esc(item)}</span>
+                    </button>
+                  `;
+                }).join('')}
+              </div>
+              <input
+                id="srv-kelengkapan"
+                type="text"
+                value="${esc(newSrvLainnya)}"
+                oninput="window.AZI.setServiceExtraInput('new', 'lainnya', this.value)"
+                placeholder="Ketikan opsional / Lainnya (mis: Casing lecet, Charger, Dusbox...)"
+                class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white"
+              />
+            </div>
+
+            <!-- SANDI / PASSWORD & POLA KUNCI LAYAR 3x3 -->
+            <div class="p-3 rounded-xl bg-slate-900 border border-slate-700 space-y-2">
+              <label class="block text-[10px] font-extrabold uppercase tracking-wider text-sky-400">
+                🔒 Sandi / Password & Pola Kunci Layar (Opsional)
+              </label>
+              <input
+                id="srv-sandi"
+                type="text"
+                value="${esc(newSrvSandi)}"
+                oninput="window.AZI.setServiceExtraInput('new', 'sandi', this.value)"
+                placeholder="Sandi / Password / PIN Layar (kosongkan jika tanpa sandi)"
+                class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono-num"
+              />
+              <div id="srv-pola-picker-wrap">
+                ${renderInteractivePatternPicker('new', newSrvPola)}
+              </div>
+            </div>
             <div class="grid grid-cols-2 gap-2">
               <div>
                 <label class="block text-[10px] text-slate-400 mb-1">Perkiraan Biaya (Belum Omzet)</label>
@@ -3010,39 +3280,78 @@
     } else if (docType === 'SERVIS_TERIMA') {
       const s = db.servis.find((x) => x.no === refNo);
       if (!s) return;
-      title = 'TANDA TERIMA SERVIS (BUKAN NOTA FINAL)';
+      const ex = parseServiceExtra(s);
+      title = 'TANDA TERIMA SERVIS';
       pelanggan = `${s.pelanggan} (${s.kontak})`;
       tanggal = s.tanggalTerima;
       petugas = s.petugasTerima;
       statusBayar = s.statusBayar;
+      const chkIcon = (name) => ex.items.includes(name) ? '☑' : '☐';
+      const chkBle = (name) => ex.items.includes(name) ? '[X]' : '[ ]';
+
       itemsHtml = `
-        <div>Perangkat: <b>${esc(s.perangkat)} — ${esc(s.merekModel)}</b></div>
+        <div>Merk/Type: <b>${esc(s.perangkat)} — ${esc(s.merekModel)}</b></div>
+        <div>Password/Sandi: <b>${esc(ex.sandi || '-')}</b></div>
         <div>Jenis Servis: <b>${esc(s.jenisServis)}</b></div>
-        <div>Keluhan: ${esc(s.keluhan)}</div>
-        <div>Kelengkapan: ${esc(s.kelengkapan || '-')}</div>
+        <div>Keluhan: <b>${esc(s.keluhan)}</b></div>
+        <div class="mt-1.5 pt-1 border-t border-dashed border-black">
+          <div class="font-bold">KELENGKAPAN BARANG YG DITINGGAL:</div>
+          <div class="grid grid-cols-2 gap-x-2 text-[10px] mt-0.5">
+            <div>${chkIcon('Unit Only')} UNIT ONLY</div>
+            <div>${chkIcon('Simcard')} SIMCARD</div>
+            <div>${chkIcon('Memory')} MEMORY</div>
+            <div>${chkIcon('Softcase')} SOFTCASE</div>
+          </div>
+          <div class="text-[10px] mt-0.5">${ex.lainnya ? '☑' : '☐'} Lainnya: <b>${esc(ex.lainnya || '..................')}</b></div>
+        </div>
+        <div class="mt-1.5 pt-1 border-t border-dashed border-black flex items-center justify-between gap-2">
+          <div>
+            <div class="font-bold">POLA KUNCI LAYAR:</div>
+            <div class="text-[10px]">Urutan: <b>${esc(ex.pola || '-')}</b></div>
+          </div>
+          <div class="border border-black rounded p-0.5 bg-white">${renderPatternSvgGrid(ex.pola, 64)}</div>
+        </div>
       `;
       summaryHtml = `
         <div class="flex justify-between"><span>Perkiraan Biaya:</span><span>${rp(s.estimasiBiaya)}</span></div>
         <div class="flex justify-between"><span>DP Diterima:</span><span>${rp(s.dpAwal)}</span></div>
+        <div class="flex justify-between font-bold"><span>Sisa Perkiraan:</span><span>${rp(Math.max(0, (Number(s.estimasiBiaya) || 0) - (Number(s.dpAwal) || 0)))}</span></div>
+        <div class="grid grid-cols-2 gap-2 pt-3 mt-1 border-t border-dashed border-black text-center text-[10px]">
+          <div><div>Pemilik</div><div class="h-7"></div><div>(${esc(s.pelanggan)})</div></div>
+          <div><div>Penerima</div><div class="h-7"></div><div>(${esc(petugas)})</div></div>
+        </div>
       `;
       blePayload = buildEscPosReceipt({
         title: 'TANDA TERIMA SERVIS',
         metaLines: [
-          `No       : ${s.no}`,
-          `Waktu    : ${tanggal}`,
-          `Petugas  : ${petugas}`,
-          `Pelanggan: ${s.pelanggan}`,
-          `Kontak   : ${s.kontak}`
+          `No. Nota : ${s.no}`,
+          `Tgl Masuk: ${tanggal}`,
+          `Nama     : ${s.pelanggan}`,
+          `No. Telp : ${s.kontak}`,
+          `Merk/Type: ${s.perangkat} ${s.merekModel}`,
+          `Password : ${ex.sandi || '-'}`
         ],
-        sections: [{
-          heading: 'DATA PERANGKAT:',
-          lines: [
-            `Unit       : ${s.perangkat} ${s.merekModel}`,
-            `Servis     : ${s.jenisServis}`,
-            `Keluhan    : ${s.keluhan}`,
-            `Kelengkapan: ${s.kelengkapan || '-'}`
-          ]
-        }],
+        sections: [
+          {
+            heading: 'KELUHAN & SERVIS:',
+            lines: [
+              `Servis : ${s.jenisServis}`,
+              `Keluhan: ${s.keluhan}`
+            ]
+          },
+          {
+            heading: 'KELENGKAPAN YG DITINGGAL:',
+            lines: [
+              `${chkBle('Unit Only')} Unit Only   ${chkBle('Simcard')} Simcard`,
+              `${chkBle('Memory')} Memory      ${chkBle('Softcase')} Softcase`,
+              `Lainnya: ${ex.lainnya || '-'}`
+            ]
+          },
+          {
+            heading: `POLA LAYAR (${ex.pola || 'Kosong'}):`,
+            lines: buildAsciiPatternGrid(ex.pola)
+          }
+        ],
         summaryRows: [
           { left: 'Perkiraan Biaya', right: rp(s.estimasiBiaya) },
           { left: 'DP Diterima', right: rp(s.dpAwal), bold: true }
@@ -3050,10 +3359,13 @@
         statusBayar: s.statusBayar
       });
       waPhone = s.kontak || '';
-      waText = `*${db.config.namaToko}*\nTANDA TERIMA SERVIS\nNo: ${s.no} | ${tanggal}\nPelanggan: ${s.pelanggan}\nPerangkat: ${s.perangkat} ${s.merekModel}\nJenis Servis: ${s.jenisServis}\nKeluhan: ${s.keluhan}\nKelengkapan: ${s.kelengkapan || '-'}\nPerkiraan Biaya: ${rp(s.estimasiBiaya)}\nDP Diterima: ${rp(s.dpAwal)}\n\n${db.config.footerNota}`;
+      waText = `*${db.config.namaToko} — SERVIS HP APPLE & ANDROID*\n*TANDA TERIMA SERVIS*\nNo. Nota: *${s.no}*\nTgl Masuk: ${tanggal}\nNama: ${s.pelanggan} (${s.kontak})\nMerk/Type: ${s.perangkat} — ${s.merekModel}\nPassword/Sandi: ${ex.sandi || '-'}\nPola: ${ex.pola || '-'}\n\n*Keluhan:* ${s.keluhan} (${s.jenisServis})\n*Kelengkapan yg Ditinggal:*\n${chkIcon('Unit Only')} Unit Only | ${chkIcon('Simcard')} Simcard | ${chkIcon('Memory')} Memory | ${chkIcon('Softcase')} Softcase\nLainnya: ${ex.lainnya || '-'}\n\nPerkiraan Biaya: ${rp(s.estimasiBiaya)}\nDP Diterima: ${rp(s.dpAwal)}\n\n${db.config.footerNota}`;
     } else if (docType === 'SERVIS_FINAL') {
       const s = db.servis.find((x) => x.no === refNo);
       if (!s) return;
+      const ex = parseServiceExtra(s);
+      const chkIcon = (name) => ex.items.includes(name) ? '☑' : '☐';
+      const chkBle = (name) => ex.items.includes(name) ? '[X]' : '[ ]';
       const jasaList = (Array.isArray(s.jasaItems) && s.jasaItems.length > 0)
         ? s.jasaItems
         : (s.namaJasa ? [{ nama: s.namaJasa, biaya: Number(s.biayaJasa) || 0 }] : []);
@@ -3070,11 +3382,28 @@
       petugas = s.teknisi || s.petugasTerima;
       statusBayar = s.statusBayar;
       extraMetaHtml = `
-        <div>Unit: <b>${esc(s.merekModel)}</b> (${esc(s.jenisServis)})</div>
-        ${s.tindakan ? `<div>Tindakan: ${esc(s.tindakan)}</div>` : ''}
+        <div>Tgl Masuk: ${esc(s.tanggalTerima)}</div>
+        <div>Tgl Keluar: ${esc(s.tanggalDiambil || s.tanggalSelesai || '-')}</div>
+        <div>Merk/Type: <b>${esc(s.merekModel)}</b> (${esc(s.jenisServis)})</div>
+        <div>Password/Sandi: <b>${esc(ex.sandi || '-')}</b></div>
+        ${s.tindakan ? `<div>Penanganan: <b>${esc(s.tindakan)}</b></div>` : ''}
       `;
 
       itemsHtml = `
+        <div class="mb-1.5 pb-1 border-b border-dashed border-black">
+          <div class="font-bold">Kelengkapan Barang yg Ditinggal:</div>
+          <div class="grid grid-cols-2 gap-x-2 text-[10px] mt-0.5">
+            <div>${chkIcon('Unit Only')} UNIT ONLY</div>
+            <div>${chkIcon('Simcard')} SIMCARD</div>
+            <div>${chkIcon('Memory')} MEMORY</div>
+            <div>${chkIcon('Softcase')} SOFTCASE</div>
+          </div>
+          <div class="text-[10px] mt-0.5">${ex.lainnya ? '☑' : '☐'} Lainnya: <b>${esc(ex.lainnya || '-')}</b></div>
+          <div class="mt-1 flex items-center justify-between gap-2">
+            <span class="text-[10px]">Pola: <b>${esc(ex.pola || '-')}</b></span>
+            <div class="border border-black rounded p-0.5 bg-white">${renderPatternSvgGrid(ex.pola, 56)}</div>
+          </div>
+        </div>
         <div class="font-bold underline mb-1">Rincian Spare Part:</div>
         ${s.spareparts.length === 0 ? `<div class="pl-1">- Tanpa penggantian spare part</div>` : s.spareparts.map((sp) => `
           <div class="py-0.5">
@@ -3103,9 +3432,22 @@
         <div class="flex justify-between"><span>Sudah Dibayar / DP:</span><span>${rp(s.totalTerbayar)}</span></div>
         ${lebihBayarDp > 0 ? `<div class="flex justify-between font-bold"><span>Kembalian DP:</span><span>${rp(lebihBayarDp)}</span></div>` : ''}
         <div class="flex justify-between font-bold"><span>Sisa Tagihan:</span><span>${rp(s.sisaTagihan)}</span></div>
+        <div class="grid grid-cols-2 gap-2 pt-3 mt-1 border-t border-dashed border-black text-center text-[10px]">
+          <div><div>Pemilik</div><div class="h-7"></div><div>(${esc(s.pelanggan)})</div></div>
+          <div><div>Penerima</div><div class="h-7"></div><div>(${esc(petugas)})</div></div>
+        </div>
       `;
 
       const bleSections = [
+        {
+          heading: 'KELENGKAPAN YG DITINGGAL:',
+          lines: [
+            `${chkBle('Unit Only')} Unit Only   ${chkBle('Simcard')} Simcard`,
+            `${chkBle('Memory')} Memory      ${chkBle('Softcase')} Softcase`,
+            `Lainnya: ${ex.lainnya || '-'}`,
+            `Pola   : ${ex.pola || '-'}`
+          ]
+        },
         {
           heading: 'RINCIAN SPARE PART:',
           lines: s.spareparts.length === 0
@@ -3132,20 +3474,22 @@
       bleSummary.push({ left: 'Sisa Tagihan', right: rp(s.sisaTagihan), bold: true });
 
       const metaLines = [
-        `No       : ${s.no}`,
-        `Waktu    : ${tanggal}`,
+        `No. Nota : ${s.no}`,
+        `Tgl Masuk: ${s.tanggalTerima}`,
+        `Tgl Lulus: ${tanggal}`,
         `Teknisi  : ${petugas}`,
-        `Pelanggan: ${s.pelanggan}`,
-        `Kontak   : ${s.kontak}`,
-        `Unit     : ${s.merekModel}`,
-        `Servis   : ${s.jenisServis}`
+        `Nama     : ${s.pelanggan}`,
+        `No. Telp : ${s.kontak}`,
+        `Merk/Type: ${s.merekModel}`,
+        `Password : ${ex.sandi || '-'}`,
+        `Keluhan  : ${s.keluhan}`
       ];
       if (s.tindakan) metaLines.push(`Tindakan : ${s.tindakan}`);
 
       blePayload = buildEscPosReceipt({ title, metaLines, sections: bleSections, summaryRows: bleSummary, statusBayar });
       waPhone = s.kontak || '';
-      waText = `*${db.config.namaToko}*\n${title}\nNo: ${s.no} | ${tanggal}\nPelanggan: ${s.pelanggan}\nUnit: ${s.merekModel} (${s.jenisServis})\n` +
-        (s.tindakan ? `Tindakan: ${s.tindakan}\n` : '') +
+      waText = `*${db.config.namaToko} — SERVIS HP APPLE & ANDROID*\n*${title}*\nNo. Nota: *${s.no}* | ${tanggal}\nNama: ${s.pelanggan} (${s.kontak})\nMerk/Type: ${s.merekModel} (${s.jenisServis})\nPassword/Sandi: ${ex.sandi || '-'} | Pola: ${ex.pola || '-'}\nKelengkapan: ${ex.kelengkapanText}\n` +
+        (s.tindakan ? `Penanganan: ${s.tindakan}\n` : '') +
         `\n*Rincian Spare Part:*\n` +
         (s.spareparts.length ? s.spareparts.map((sp) => `• ${sp.nama} (${sp.qty}x ${rp(sp.hargaJual)}) = ${rp(sp.qty * sp.hargaJual)}`).join('\n') : '- Tanpa spare part') +
         `\n\n*Rincian Biaya Jasa Servis:*\n` +
@@ -3217,41 +3561,216 @@
 
     const cleanWaDigits = String(waPhone || '').replace(/\D/g, '').replace(/^0/, '62');
     const waShareUrl = `https://wa.me/${cleanWaDigits}?text=${encodeURIComponent(waText)}`;
-    const paperClass = db.config.lebarPrinter === '80mm' ? 'receipt-80mm' : 'receipt-58mm';
+    const isServiceReceipt = (docType === 'SERVIS_TERIMA' || docType === 'SERVIS_FINAL');
+    const useOfficialSrvLayout = isServiceReceipt && srvReceiptLayoutMode === 'official';
+    const paperClass = useOfficialSrvLayout
+      ? 'receipt-servis-official'
+      : (db.config.lebarPrinter === '80mm' ? 'receipt-80mm' : 'receipt-58mm');
     const isBtConn = bluetoothStatus === 'connected' && Boolean(bluetoothCharacteristic);
+    const srvObj = isServiceReceipt ? db.servis.find((x) => x.no === refNo) : null;
 
-    const buildReceiptBlockHtml = (copyLabel) => `
-      <div>
-        <div class="text-center border-b border-dashed border-black pb-2 mb-2">
-          <div class="font-extrabold text-sm">${esc(db.config.namaToko)}</div>
-          <div>${esc(db.config.alamat)}</div>
-          <div>Telp/WA: ${esc(db.config.kontak)}</div>
-          <div class="font-bold mt-1">${esc(title)}</div>
-          <div class="text-[10px] font-bold tracking-wider mt-0.5">${copyLabel}</div>
+    const buildOfficialServiceReceiptHtml = (copyLabel) => {
+      if (!srvObj) return '';
+      const ex = parseServiceExtra(srvObj);
+      const chkBox = (name, label) => {
+        const hit = ex.items.includes(name);
+        return `
+          <span class="inline-flex items-center gap-1 mr-3 font-bold text-[10px]">
+            <span class="inline-flex items-center justify-center w-3.5 h-3.5 border border-rose-900 rounded-sm text-[10px] ${hit ? 'bg-rose-800 text-white' : 'bg-white text-transparent'}">${hit ? '✓' : '·'}</span>
+            <span>${label}</span>
+          </span>
+        `;
+      };
+      const jasaList = (Array.isArray(srvObj.jasaItems) && srvObj.jasaItems.length > 0)
+        ? srvObj.jasaItems
+        : (srvObj.namaJasa ? [{ nama: srvObj.namaJasa, biaya: Number(srvObj.biayaJasa) || 0 }] : []);
+      const penangananLines = [];
+      if (srvObj.tindakan) penangananLines.push(srvObj.tindakan);
+      if (Array.isArray(srvObj.spareparts) && srvObj.spareparts.length) {
+        penangananLines.push('Part: ' + srvObj.spareparts.map((sp) => `${sp.nama} (${sp.qty}x ${rp(sp.hargaJual)})`).join(', '));
+      }
+      if (jasaList.length && (docType === 'SERVIS_FINAL' || jasaList.some((j) => Number(j.biaya) > 0))) {
+        penangananLines.push('Jasa: ' + jasaList.map((j) => `${j.nama} (${rp(j.biaya)})`).join(', '));
+      }
+      const totalBiayaDisplay = docType === 'SERVIS_FINAL'
+        ? (Number(srvObj.totalBiayaFinal) || 0)
+        : (Number(srvObj.estimasiBiaya) || 0);
+      const catatanLines = [
+        `Status: ${srvObj.statusPengerjaan} (${srvObj.statusBayar})`,
+        `Teknisi: ${srvObj.teknisi || '-'}`,
+        docType === 'SERVIS_FINAL'
+          ? `Total: ${rp(srvObj.totalBiayaFinal)} | Bayar/DP: ${rp(srvObj.totalTerbayar)} | Sisa: ${rp(srvObj.sisaTagihan)}`
+          : `Estimasi: ${rp(srvObj.estimasiBiaya)} | DP Awal: ${rp(srvObj.dpAwal)} | Sisa: ${rp(Math.max(0, (Number(srvObj.estimasiBiaya) || 0) - (Number(srvObj.dpAwal) || 0)))}`
+      ];
+
+      return `
+        <div class="text-slate-900">
+          <!-- HEADER NOTA SERVIS ASLI 2 KOLOM -->
+          <div class="grid grid-cols-12 gap-2 items-center pb-2 border-b-2 border-rose-900">
+            <div class="col-span-7 flex items-center gap-2.5">
+              <img src="${esc(db.config.logoUrl || 'logo1.png')}" alt="Logo" class="w-12 h-12 object-contain rounded border border-rose-900/40 p-0.5 bg-white shrink-0" onerror="this.src='icon-192.png'" />
+              <div class="min-w-0">
+                <div class="text-base font-extrabold text-rose-900 leading-tight tracking-tight">Servis Hp Apple &amp; Android</div>
+                <div class="text-xs font-extrabold text-slate-900">${esc(db.config.namaToko)} <span class="text-[9px] font-bold text-rose-700 ml-1">${copyLabel}</span></div>
+                <div class="text-[10px] text-slate-700 leading-snug">${esc(db.config.alamat)}</div>
+                <div class="text-[10px] font-bold text-rose-900">Telp/ WA : ${esc(db.config.kontak)}</div>
+              </div>
+            </div>
+            <div class="col-span-5 space-y-1">
+              <div class="grid grid-cols-7 gap-0.5 text-center text-[8px] font-extrabold text-white">
+                <span class="bg-emerald-700 py-1 rounded-sm">oppo</span>
+                <span class="bg-sky-700 py-1 rounded-sm">vivo</span>
+                <span class="bg-orange-600 py-1 rounded-sm">MI</span>
+                <span class="bg-amber-500 text-slate-950 py-1 rounded-sm">R</span>
+                <span class="bg-blue-800 py-1 rounded-sm">SAMSUNG</span>
+                <span class="bg-slate-900 py-1 rounded-sm"></span>
+                <span class="bg-rose-700 py-1 rounded-sm">HUAWEI</span>
+              </div>
+              <div class="text-[10px] space-y-0.5 pt-0.5 font-semibold">
+                <div class="flex justify-between border-b border-dotted border-rose-900"><span>Tgl Masuk :</span><b class="font-mono-num">${esc(srvObj.tanggalTerima || '-')}</b></div>
+                <div class="flex justify-between border-b border-dotted border-rose-900"><span>Tgl Keluar :</span><b class="font-mono-num">${esc(srvObj.tanggalDiambil || srvObj.tanggalSelesai || '.... / .... / 20..')}</b></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ISI 2 KOLOM KIRI & KANAN PERSIS NOTA FISIK -->
+          <div class="grid grid-cols-12 gap-2.5 pt-2">
+            <!-- KOLOM KIRI -->
+            <div class="col-span-7 space-y-1.5">
+              <div class="srv-banner-strip text-center py-1 px-2 rounded text-[10px]">
+                SERVICE HANDPHONE SOFTWARE &amp; HARDWARE
+              </div>
+              <div class="srv-box-border rounded overflow-hidden text-[11px]">
+                <div class="srv-row-line px-2 py-1 flex"><span class="w-20 font-bold text-rose-900 shrink-0">No. Nota</span><span class="mr-1">:</span><b class="font-mono-num text-rose-800">${esc(srvObj.no)}</b></div>
+                <div class="srv-row-line px-2 py-1 flex"><span class="w-20 font-bold text-rose-900 shrink-0">Nama</span><span class="mr-1">:</span><b class="text-slate-900">${esc(srvObj.pelanggan)}</b></div>
+                <div class="srv-row-line px-2 py-1 flex"><span class="w-20 font-bold text-rose-900 shrink-0">No. Telp</span><span class="mr-1">:</span><span class="font-mono-num font-semibold">${esc(srvObj.kontak)}</span></div>
+                <div class="srv-row-line px-2 py-1 flex"><span class="w-20 font-bold text-rose-900 shrink-0">Merk/Type</span><span class="mr-1">:</span><b class="text-slate-900">${esc(srvObj.perangkat)} — ${esc(srvObj.merekModel)}</b></div>
+                <div class="px-2 py-1 flex"><span class="w-20 font-bold text-rose-900 shrink-0">Password</span><span class="mr-1">:</span><b class="font-mono-num text-slate-900">${esc(ex.sandi || '-')}</b></div>
+              </div>
+
+              <!-- KELUHAN -->
+              <div class="srv-box-border rounded p-2">
+                <div class="text-[10px] font-extrabold text-rose-900 uppercase">KELUHAN (${esc(srvObj.jenisServis)})</div>
+                <div class="min-h-[34px] text-[11px] font-semibold text-slate-900 mt-0.5">${esc(srvObj.keluhan)}</div>
+              </div>
+
+              <!-- KELENGKAPAN BARANG YG DITINGGAL (URUTAN CEKLIST + KETIKAN OPSIONAL) -->
+              <div class="srv-box-border rounded p-2 space-y-1">
+                <div class="text-[10px] font-extrabold text-rose-900 uppercase">KELENGKAPAN BARANG YG DITINGGAL</div>
+                <div class="flex flex-wrap gap-y-1 pt-0.5">
+                  ${chkBox('Unit Only', 'UNIT ONLY')}
+                  ${chkBox('Simcard', 'SIM CARD 1/2')}
+                  ${chkBox('Memory', 'MEMORY CARD')}
+                  ${chkBox('Softcase', 'SOFTCASE / CASE')}
+                </div>
+                <div class="text-[10px] pt-0.5 flex items-center gap-1">
+                  <span class="inline-flex items-center justify-center w-3.5 h-3.5 border border-rose-900 rounded-sm text-[10px] font-bold ${ex.lainnya ? 'bg-rose-800 text-white' : 'bg-white text-transparent'}">${ex.lainnya ? '✓' : '·'}</span>
+                  <span class="font-bold text-rose-900">Lainnya :</span>
+                  <span class="flex-1 border-b border-dotted border-rose-900 font-semibold text-slate-900">${esc(ex.lainnya || '')}</span>
+                </div>
+              </div>
+
+              <!-- PERHATIAN (4 POIN SYARAT NOTA ASLI) -->
+              <div class="srv-box-border rounded overflow-hidden">
+                <div class="srv-banner-strip px-2 py-0.5 text-[9px]">PERHATIAN</div>
+                <ul class="p-1.5 text-[9px] text-rose-950 space-y-0.5 leading-tight italic font-medium">
+                  <li>- Pengambilan barang tanpa disertai nota servis tidak di layani</li>
+                  <li>- Garansi tidak berlaku apabila nota hilang</li>
+                  <li>- Jika dalam waktu satu bulan unit tidak diambil, unit hilang bukan tanggung jawab kami</li>
+                  <li>- Kami tidak bertanggung jawab atas kerusakan lain diluar keluhan yang tertera di nota</li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- KOLOM KANAN -->
+            <div class="col-span-5 flex flex-col justify-between space-y-1.5">
+              <!-- PENANGANAN -->
+              <div class="srv-box-border rounded p-2">
+                <div class="text-[10px] font-extrabold text-rose-900">Penanganan :</div>
+                <div class="min-h-[54px] text-[10px] text-slate-900 mt-0.5 space-y-0.5">
+                  ${penangananLines.length ? penangananLines.map((ln) => `<div>${esc(ln)}</div>`).join('') : '<div class="text-slate-400 italic">Dalam pemeriksaan / pengerjaan teknisi</div>'}
+                </div>
+              </div>
+
+              <!-- CATATAN & POLA 3x3 -->
+              <div class="grid grid-cols-12 gap-1.5">
+                <div class="col-span-7 srv-box-border rounded overflow-hidden flex flex-col">
+                  <div class="srv-banner-strip text-center py-0.5 text-[9px]">Catatan</div>
+                  <div class="p-1.5 text-[9.5px] text-slate-800 space-y-0.5 flex-1">
+                    ${catatanLines.map((c) => `<div>${esc(c)}</div>`).join('')}
+                  </div>
+                </div>
+                <div class="col-span-5 srv-box-border rounded overflow-hidden flex flex-col items-center">
+                  <div class="srv-banner-strip w-full text-center py-0.5 text-[9px]">Pola</div>
+                  <div class="p-1 flex flex-col items-center justify-center flex-1">
+                    ${renderPatternSvgGrid(ex.pola, 82)}
+                    <div class="text-[8.5px] font-mono-num font-bold text-rose-900">${esc(ex.pola || '3x3 Pola')}</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- BIAYA -->
+              <div class="srv-box-border rounded px-2.5 py-1.5 flex items-center justify-between bg-rose-50/50">
+                <span class="font-extrabold text-xs text-rose-900">Biaya : Rp</span>
+                <span class="font-mono-num font-extrabold text-sm text-slate-950">${totalBiayaDisplay.toLocaleString('id-ID')}</span>
+              </div>
+
+              <!-- TANDA TANGAN PEMILIK & PENERIMA -->
+              <div class="grid grid-cols-2 gap-1.5 text-center text-[10px]">
+                <div class="srv-box-border rounded p-1.5">
+                  <div class="font-bold text-rose-900">Pemilik</div>
+                  <div class="h-9"></div>
+                  <div class="border-t border-rose-900/60 pt-0.5 font-semibold truncate">${esc(srvObj.pelanggan)}</div>
+                </div>
+                <div class="srv-box-border rounded p-1.5">
+                  <div class="font-bold text-rose-900">Penerima</div>
+                  <div class="h-9"></div>
+                  <div class="border-t border-rose-900/60 pt-0.5 font-semibold truncate">${esc(petugas)}</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div class="border-b border-dashed border-black pb-2 mb-2">
-          <div>No: <b>${esc(refNo)}</b></div>
-          <div>Waktu: ${esc(tanggal)}</div>
-          <div>Petugas: ${esc(petugas)}</div>
-          <div>${docType === 'PEMBELIAN' ? '' : 'Pelanggan: '}${esc(pelanggan)}</div>
-          ${extraMetaHtml}
+      `;
+    };
+
+    const buildReceiptBlockHtml = (copyLabel) => {
+      if (useOfficialSrvLayout) {
+        return buildOfficialServiceReceiptHtml(copyLabel);
+      }
+      return `
+        <div>
+          <div class="text-center border-b border-dashed border-black pb-2 mb-2">
+            <div class="font-extrabold text-sm">${esc(db.config.namaToko)}</div>
+            <div>${esc(db.config.alamat)}</div>
+            <div>Telp/WA: ${esc(db.config.kontak)}</div>
+            <div class="font-bold mt-1">${esc(title)}</div>
+            <div class="text-[10px] font-bold tracking-wider mt-0.5">${copyLabel}</div>
+          </div>
+          <div class="border-b border-dashed border-black pb-2 mb-2">
+            <div>No: <b>${esc(refNo)}</b></div>
+            <div>Waktu: ${esc(tanggal)}</div>
+            <div>Petugas: ${esc(petugas)}</div>
+            <div>${docType === 'PEMBELIAN' ? '' : 'Pelanggan: '}${esc(pelanggan)}</div>
+            ${extraMetaHtml}
+          </div>
+          <div class="border-b border-dashed border-black pb-2 mb-2">
+            ${itemsHtml}
+          </div>
+          <div class="border-b border-dashed border-black pb-2 mb-2 space-y-0.5">
+            ${summaryHtml}
+            <div class="flex justify-between font-extrabold pt-1"><span>STATUS BAYAR:</span><span>${esc(statusBayar.toUpperCase())}</span></div>
+          </div>
+          <div class="text-center text-[10px] whitespace-pre-line">${esc(db.config.footerNota)}</div>
         </div>
-        <div class="border-b border-dashed border-black pb-2 mb-2">
-          ${itemsHtml}
-        </div>
-        <div class="border-b border-dashed border-black pb-2 mb-2 space-y-0.5">
-          ${summaryHtml}
-          <div class="flex justify-between font-extrabold pt-1"><span>STATUS BAYAR:</span><span>${esc(statusBayar.toUpperCase())}</span></div>
-        </div>
-        <div class="text-center text-[10px] whitespace-pre-line">${esc(db.config.footerNota)}</div>
-      </div>
-    `;
+      `;
+    };
 
     openModal(`
-      <div class="glass-card rounded-2xl p-5 sm:p-6 max-w-lg w-full space-y-4 my-4">
+      <div class="glass-card rounded-2xl p-5 sm:p-6 ${useOfficialSrvLayout ? 'max-w-3xl' : 'max-w-lg'} w-full space-y-3.5 my-4">
         <div class="flex items-center justify-between border-b border-slate-800 pb-3">
           <div>
-            <h3 class="text-sm font-extrabold text-white">Cek & Cetak Nota (${esc(db.config.lebarPrinter)})</h3>
+            <h3 class="text-sm font-extrabold text-white">Cek & Cetak Nota ${isServiceReceipt ? 'Servis Resmi' : `(${esc(db.config.lebarPrinter)})`}</h3>
             <p class="text-[10px] ${isBtConn ? 'text-emerald-400' : 'text-rose-400'}">
               Bluetooth: ${isBtConn ? `Terhubung (${esc(bluetoothDeviceName || 'Thermal')})` : 'Belum Konek (Merah)'} • Mendukung Cetak 1x & 2x (Asli + Arsip Toko)
             </p>
@@ -3259,10 +3778,21 @@
           <button onclick="window.AZI.closeModal()" class="text-slate-400 hover:text-white text-xl">&times;</button>
         </div>
 
-        <!-- AREA KERTAS STRUK THERMAL (DUKUNG PRINT 1X & PRINT 2X ASLI + SALINAN TOKO) -->
-        <div class="flex justify-center bg-slate-950 p-4 rounded-xl overflow-x-auto max-h-[52vh] overflow-y-auto">
+        ${isServiceReceipt ? `
+          <div class="grid grid-cols-2 gap-2 p-1 rounded-xl bg-slate-900 border border-slate-800 text-xs">
+            <button type="button" onclick="window.AZI.setServiceReceiptLayout('official')" class="py-2 px-3 rounded-lg font-extrabold transition ${useOfficialSrvLayout ? 'btn-luxury' : 'text-slate-400 hover:bg-slate-800'}">
+              📋 Format Nota Servis Asli (2 Kolom + Pola)
+            </button>
+            <button type="button" onclick="window.AZI.setServiceReceiptLayout('thermal')" class="py-2 px-3 rounded-lg font-extrabold transition ${!useOfficialSrvLayout ? 'btn-cyber' : 'text-slate-400 hover:bg-slate-800'}">
+              🧾 Format Struk Thermal (${esc(db.config.lebarPrinter)})
+            </button>
+          </div>
+        ` : ''}
+
+        <!-- AREA KERTAS NOTA / STRUK (DUKUNG PRINT 1X & PRINT 2X ASLI + SALINAN TOKO) -->
+        <div class="flex justify-center bg-slate-900 p-3 sm:p-4 rounded-xl overflow-x-auto max-h-[56vh] overflow-y-auto border border-slate-800">
           <div id="thermal-print-area" class="${paperClass} bg-white text-black p-4 rounded shadow-xl">
-            ${buildReceiptBlockHtml('[ ASLI — UNTUK PELANGGAN / PIHAK TERKAIT ]')}
+            ${buildReceiptBlockHtml('[ ASLI — UNTUK PELANGGAN / PEMILIK ]')}
             <div class="copy-print-only">
               <div class="receipt-cut-line">✂ - - - - - POTONG DI SINI - - - - - ✂</div>
               ${buildReceiptBlockHtml('[ SALINAN KE-2 — ARSIP TOKO ]')}
@@ -3601,6 +4131,10 @@
       pbItemSearchQuery = '';
       editingBarangSku = '';
       editingServiceDraft = null;
+      newSrvChecklist = ['Unit Only'];
+      newSrvLainnya = '';
+      newSrvSandi = '';
+      newSrvPola = '';
       lastReceiptBlePayload = null;
       lastReceiptBleCopy2 = null;
       lastReceiptMeta = null;
@@ -4140,6 +4674,136 @@
       openReceiptModal('SERVIS_FINAL', s.no);
     },
 
+    setServiceReceiptLayout(mode) {
+      srvReceiptLayoutMode = mode === 'thermal' ? 'thermal' : 'official';
+      if (lastReceiptMeta && lastReceiptMeta.docType && lastReceiptMeta.refNo) {
+        openReceiptModal(lastReceiptMeta.docType, lastReceiptMeta.refNo);
+      }
+    },
+
+    toggleServiceChecklist(scope, item) {
+      let list = scope === 'new'
+        ? [...newSrvChecklist]
+        : (editingServiceDraft ? [...(editingServiceDraft.kelengkapanItems || [])] : []);
+
+      if (list.includes(item)) {
+        list = list.filter((x) => x !== item);
+      } else {
+        if (item === 'Unit Only') {
+          list = ['Unit Only'];
+        } else {
+          list = list.filter((x) => x !== 'Unit Only');
+          list.push(item);
+        }
+      }
+      const lainnyaVal = scope === 'new'
+        ? newSrvLainnya
+        : (editingServiceDraft ? editingServiceDraft.kelengkapanLainnya : '');
+      if (list.length === 0 && !String(lainnyaVal || '').trim()) {
+        list = ['Unit Only'];
+      }
+      // Jaga urutan baku: Unit Only, Simcard, Memory, Softcase
+      list = SERVICE_CHECKLIST_ITEMS.filter((it) => list.includes(it));
+
+      if (scope === 'new') {
+        newSrvChecklist = list;
+        const wrap = document.getElementById('srv-checklist-wrap');
+        if (wrap) {
+          wrap.innerHTML = SERVICE_CHECKLIST_ITEMS.map((it) => {
+            const checked = newSrvChecklist.includes(it);
+            return `
+              <button
+                type="button"
+                onclick="window.AZI.toggleServiceChecklist('new', '${escJs(it)}')"
+                class="px-2.5 py-2 rounded-xl border text-left font-bold text-[11px] flex items-center gap-1.5 transition ${checked ? 'bg-amber-500/20 border-amber-500 text-amber-300 shadow-sm' : 'bg-slate-950 border-slate-700 text-slate-400 hover:bg-slate-800'}"
+              >
+                <span class="text-xs">${checked ? '☑️' : '⬜'}</span>
+                <span class="truncate">${esc(it)}</span>
+              </button>
+            `;
+          }).join('');
+        }
+      } else if (editingServiceDraft) {
+        editingServiceDraft.kelengkapanItems = list;
+        this.renderServiceWorkModalContent();
+      }
+    },
+
+    setServiceExtraInput(scope, field, value) {
+      const val = String(value || '');
+      if (scope === 'new') {
+        if (field === 'lainnya') newSrvLainnya = val;
+        else if (field === 'sandi') newSrvSandi = val;
+      } else if (editingServiceDraft) {
+        if (field === 'lainnya') editingServiceDraft.kelengkapanLainnya = val;
+        else if (field === 'sandi') editingServiceDraft.sandi = val;
+      }
+    },
+
+    toggleServicePatternDot(scope, dotNum) {
+      const curStr = scope === 'new'
+        ? newSrvPola
+        : (editingServiceDraft ? editingServiceDraft.pola : '');
+      const pts = extractPatternPoints(curStr);
+      const idx = pts.indexOf(dotNum);
+      if (idx === -1) {
+        pts.push(dotNum);
+      } else if (idx === pts.length - 1) {
+        pts.pop();
+      } else {
+        pts.splice(idx, 1);
+      }
+      const nextStr = pts.join('-');
+      if (scope === 'new') {
+        newSrvPola = nextStr;
+        const wrap = document.getElementById('srv-pola-picker-wrap');
+        if (wrap) wrap.innerHTML = renderInteractivePatternPicker('new', newSrvPola);
+      } else if (editingServiceDraft) {
+        editingServiceDraft.pola = nextStr;
+        const wrap = document.getElementById('upd-srv-pola-picker-wrap');
+        if (wrap) wrap.innerHTML = renderInteractivePatternPicker('upd', editingServiceDraft.pola);
+      }
+    },
+
+    setServicePatternText(scope, text) {
+      const val = String(text || '');
+      if (scope === 'new') {
+        newSrvPola = val;
+        const wrap = document.getElementById('srv-pola-picker-wrap');
+        if (wrap) {
+          wrap.innerHTML = renderInteractivePatternPicker('new', newSrvPola);
+          const inp = document.getElementById('srv-pola');
+          if (inp) {
+            inp.focus();
+            inp.setSelectionRange(val.length, val.length);
+          }
+        }
+      } else if (editingServiceDraft) {
+        editingServiceDraft.pola = val;
+        const wrap = document.getElementById('upd-srv-pola-picker-wrap');
+        if (wrap) {
+          wrap.innerHTML = renderInteractivePatternPicker('upd', editingServiceDraft.pola);
+          const inp = document.getElementById('upd-srv-pola');
+          if (inp) {
+            inp.focus();
+            inp.setSelectionRange(val.length, val.length);
+          }
+        }
+      }
+    },
+
+    clearServicePattern(scope) {
+      if (scope === 'new') {
+        newSrvPola = '';
+        const wrap = document.getElementById('srv-pola-picker-wrap');
+        if (wrap) wrap.innerHTML = renderInteractivePatternPicker('new', '');
+      } else if (editingServiceDraft) {
+        editingServiceDraft.pola = '';
+        const wrap = document.getElementById('upd-srv-pola-picker-wrap');
+        if (wrap) wrap.innerHTML = renderInteractivePatternPicker('upd', '');
+      }
+    },
+
     submitNewService(e) {
       e.preventDefault();
       const pelanggan = document.getElementById('srv-pelanggan').value.trim();
@@ -4148,7 +4812,17 @@
       const merekModel = document.getElementById('srv-merek').value.trim();
       const jenisServis = document.getElementById('srv-jenis').value.trim();
       const keluhan = document.getElementById('srv-keluhan').value.trim();
-      const kelengkapan = document.getElementById('srv-kelengkapan').value.trim();
+      const kelengkapanLainnya = (document.getElementById('srv-kelengkapan') ? document.getElementById('srv-kelengkapan').value : newSrvLainnya).trim();
+      const sandi = (document.getElementById('srv-sandi') ? document.getElementById('srv-sandi').value : newSrvSandi).trim();
+      const polaRaw = (document.getElementById('srv-pola') ? document.getElementById('srv-pola').value : newSrvPola).trim();
+      const pola = normalizePatternString(polaRaw);
+      const kelengkapanItems = newSrvChecklist.length ? [...newSrvChecklist] : (kelengkapanLainnya ? [] : ['Unit Only']);
+      const kelengkapan = packServiceKelengkapan({
+        items: kelengkapanItems,
+        lainnya: kelengkapanLainnya,
+        sandi,
+        pola
+      });
       const estimasiBiaya = Math.max(0, Number(document.getElementById('srv-estimasi').value) || 0);
       const dpAwal = Math.max(0, Number(document.getElementById('srv-dp').value) || 0);
       const akunId = document.getElementById('srv-akun').value;
@@ -4204,6 +4878,10 @@
         keluhan,
         jenisServis,
         kelengkapan,
+        kelengkapanItems,
+        kelengkapanLainnya,
+        sandi,
+        pola,
         statusPengerjaan: 'Diterima',
         tindakan: '',
         spareparts: [],
@@ -4225,6 +4903,12 @@
         petugasTerima: currentUser.username
       });
 
+      // Reset form checklist, sandi & pola ke kondisi awal
+      newSrvChecklist = ['Unit Only'];
+      newSrvLainnya = '';
+      newSrvSandi = '';
+      newSrvPola = '';
+
       saveDatabase('CREATE_SERVICE', noSrv, `Terima servis ${merekModel} (${pelanggan})`);
       showToast(`Servis ${noSrv} berhasil dicatat dengan status Diterima!`, 'success');
       renderApp();
@@ -4234,6 +4918,7 @@
     openServiceWorkModal(noSrv, presetStatus = null) {
       const s = db.servis.find((x) => x.no === noSrv);
       if (!s) return;
+      const ex = parseServiceExtra(s);
       const existingJasa = (Array.isArray(s.jasaItems) && s.jasaItems.length > 0)
         ? JSON.parse(JSON.stringify(s.jasaItems))
         : [{ nama: s.namaJasa || s.jenisServis || 'Jasa Servis', biaya: Number(s.biayaJasa) || 0 }];
@@ -4242,6 +4927,10 @@
         statusPengerjaan: presetStatus || s.statusPengerjaan,
         teknisi: s.teknisi || currentUser.username,
         tindakan: s.tindakan || '',
+        kelengkapanItems: [...ex.items],
+        kelengkapanLainnya: ex.lainnya,
+        sandi: ex.sandi,
+        pola: ex.pola,
         spareparts: JSON.parse(JSON.stringify(s.spareparts || [])),
         jasaItems: existingJasa,
         diskon: Number(s.diskon) || 0,
@@ -4262,7 +4951,7 @@
       openModal(`
         <div class="glass-card rounded-2xl p-5 sm:p-6 max-w-xl w-full space-y-4 text-xs my-6">
           <div class="flex items-center justify-between border-b border-slate-800 pb-2">
-            <h3 class="text-sm font-extrabold text-white">Pengerjaan, Sparepart & Jasa Servis ${esc(d.no)}</h3>
+            <h3 class="text-sm font-extrabold text-white">Pengerjaan, Kelengkapan, Sandi/Pola & Biaya Servis ${esc(d.no)}</h3>
             <button onclick="window.AZI.closeModal()" class="text-slate-400 hover:text-white text-xl">&times;</button>
           </div>
 
@@ -4282,7 +4971,48 @@
               </div>
             </div>
 
-            <input id="upd-srv-tindakan" type="text" value="${esc(d.tindakan)}" oninput="window.AZI.updateDraftServiceField('tindakan', this.value, false)" placeholder="Tindakan Teknisi (mis: Ganti LCD Ori + Bersihkan Soket)" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white" />
+            <input id="upd-srv-tindakan" type="text" value="${esc(d.tindakan)}" oninput="window.AZI.updateDraftServiceField('tindakan', this.value, false)" placeholder="Penanganan / Tindakan Teknisi (mis: Ganti LCD Ori + Bersihkan Soket)" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white" />
+
+            <!-- EDIT KELENGKAPAN, SANDI & POLA 3x3 -->
+            <div class="p-3 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2">
+              <div class="font-bold text-amber-400">☑️ Kelengkapan Barang yg Ditinggal & Kunci Layar (Sandi / Pola)</div>
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                ${SERVICE_CHECKLIST_ITEMS.map((it) => {
+                  const checked = (d.kelengkapanItems || []).includes(it);
+                  return `
+                    <button
+                      type="button"
+                      onclick="window.AZI.toggleServiceChecklist('upd', '${escJs(it)}')"
+                      class="px-2 py-1.5 rounded-lg border text-left font-bold text-[11px] flex items-center gap-1 transition ${checked ? 'bg-amber-500/20 border-amber-500 text-amber-300' : 'bg-slate-950 border-slate-700 text-slate-400'}"
+                    >
+                      <span>${checked ? '☑️' : '⬜'}</span>
+                      <span class="truncate">${esc(it)}</span>
+                    </button>
+                  `;
+                }).join('')}
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <input
+                  id="upd-srv-lainnya"
+                  type="text"
+                  value="${esc(d.kelengkapanLainnya || '')}"
+                  oninput="window.AZI.setServiceExtraInput('upd', 'lainnya', this.value)"
+                  placeholder="Ketikan opsional / Lainnya..."
+                  class="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white text-[11px]"
+                />
+                <input
+                  id="upd-srv-sandi"
+                  type="text"
+                  value="${esc(d.sandi || '')}"
+                  oninput="window.AZI.setServiceExtraInput('upd', 'sandi', this.value)"
+                  placeholder="Password / Sandi / PIN..."
+                  class="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono-num text-[11px]"
+                />
+              </div>
+              <div id="upd-srv-pola-picker-wrap">
+                ${renderInteractivePatternPicker('upd', d.pola || '')}
+              </div>
+            </div>
 
             <!-- DAFTAR SPARE PART -->
             <div class="p-3 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2.5">
@@ -4561,6 +5291,16 @@
 
       s.teknisi = d.teknisi;
       s.tindakan = tindakan;
+      s.kelengkapanItems = Array.isArray(d.kelengkapanItems) && d.kelengkapanItems.length ? [...d.kelengkapanItems] : (d.kelengkapanLainnya ? [] : ['Unit Only']);
+      s.kelengkapanLainnya = String(d.kelengkapanLainnya || '').trim();
+      s.sandi = String(d.sandi || '').trim();
+      s.pola = normalizePatternString(d.pola || '');
+      s.kelengkapan = packServiceKelengkapan({
+        items: s.kelengkapanItems,
+        lainnya: s.kelengkapanLainnya,
+        sandi: s.sandi,
+        pola: s.pola
+      });
       s.spareparts = d.spareparts;
       s.jasaItems = cleanJasa;
       s.namaJasa = cleanJasa.map((j) => j.nama).join(', ');

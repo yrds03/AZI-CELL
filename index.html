@@ -1,14 +1,14 @@
 <!DOCTYPE html>
-<html lang="id" class="dark">
+<html lang="id">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="referrer" content="no-referrer" />
   <meta http-equiv="X-Content-Type-Options" content="nosniff" />
-  <meta name="theme-color" content="#060B19" />
+  <meta name="theme-color" content="#F8FAFC" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Azi Cell" />
   <title>AZI CELL — Executive POS & Service System</title>
   <link rel="manifest" href="manifest.json" />
@@ -18,84 +18,291 @@
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
   <style>
     :root {
-      color-scheme: dark;
+      color-scheme: light;
     }
     body {
       font-family: 'Plus Jakarta Sans', sans-serif;
-      background: radial-gradient(circle at 15% 15%, rgba(56, 189, 248, 0.12), transparent 38%),
-                  radial-gradient(circle at 85% 20%, rgba(245, 158, 11, 0.11), transparent 35%),
-                  radial-gradient(circle at 50% 90%, rgba(99, 102, 241, 0.10), transparent 45%),
-                  #050914;
-      color: #F8FAFC;
+      background-color: #F8FAFC;
+      background-image:
+        radial-gradient(circle at 8% 10%, rgba(245, 158, 11, 0.10), transparent 36%),
+        radial-gradient(circle at 92% 12%, rgba(14, 165, 233, 0.09), transparent 38%),
+        radial-gradient(circle at 50% 92%, rgba(99, 102, 241, 0.07), transparent 44%),
+        linear-gradient(180deg, #FFFFFF 0%, #F4F7FB 52%, #EEF2F8 100%);
+      background-attachment: fixed;
+      color: #0F172A;
       min-height: 100vh;
       overflow-x: hidden;
     }
     .font-mono-num {
       font-family: 'JetBrains Mono', monospace;
     }
+
+    /* =====================================================================
+       EXECUTIVE PEARL WHITE LUXURY DESIGN SYSTEM ("PUTIH ELEGAN BERKELAS")
+       ===================================================================== */
     .glass-card {
-      background: rgba(15, 23, 42, 0.72);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(22px);
+      -webkit-backdrop-filter: blur(22px);
+      border: 1px solid rgba(203, 213, 225, 0.85);
+      box-shadow:
+        0 18px 42px -12px rgba(15, 23, 42, 0.07),
+        0 4px 14px -2px rgba(15, 23, 42, 0.04),
+        inset 0 1px 0 rgba(255, 255, 255, 1);
+      transition: box-shadow 0.22s ease, border-color 0.22s ease;
     }
     .glass-panel {
-      background: linear-gradient(145deg, rgba(30, 41, 59, 0.65), rgba(15, 23, 42, 0.85));
-      border: 1px solid rgba(255, 255, 255, 0.09);
+      background: linear-gradient(145deg, #FFFFFF 0%, #F8FAFC 100%);
+      border: 1px solid #E2E8F0;
+      box-shadow: 0 4px 14px -3px rgba(15, 23, 42, 0.04);
     }
     .gold-gradient-text {
-      background: linear-gradient(135deg, #FDE68A 0%, #F59E0B 50%, #38BDF8 100%);
+      background: linear-gradient(135deg, #92400E 0%, #D97706 42%, #0284C7 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
     .btn-luxury {
-      background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
-      color: #050914;
-      font-weight: 700;
+      background: linear-gradient(135deg, #F59E0B 0%, #D97706 55%, #B45309 100%);
+      color: #FFFFFF !important;
+      font-weight: 800;
+      letter-spacing: 0.01em;
       transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-      box-shadow: 0 8px 25px -4px rgba(245, 158, 11, 0.45);
+      box-shadow: 0 10px 24px -6px rgba(217, 119, 6, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.32);
     }
     .btn-luxury:hover {
       transform: translateY(-1px);
-      box-shadow: 0 12px 30px -4px rgba(245, 158, 11, 0.65);
+      box-shadow: 0 14px 28px -5px rgba(217, 119, 6, 0.56), inset 0 1px 0 rgba(255, 255, 255, 0.4);
     }
     .btn-cyber {
-      background: linear-gradient(135deg, #0EA5E9 0%, #2563EB 100%);
-      color: #FFFFFF;
-      font-weight: 700;
+      background: linear-gradient(135deg, #0284C7 0%, #2563EB 100%);
+      color: #FFFFFF !important;
+      font-weight: 800;
+      letter-spacing: 0.01em;
       transition: all 0.2s ease;
-      box-shadow: 0 8px 25px -4px rgba(14, 165, 233, 0.4);
+      box-shadow: 0 10px 24px -6px rgba(37, 99, 235, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.28);
     }
     .btn-cyber:hover {
       transform: translateY(-1px);
-      box-shadow: 0 12px 28px -4px rgba(14, 165, 233, 0.6);
+      box-shadow: 0 14px 28px -5px rgba(37, 99, 235, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.35);
     }
+
+    /* Harmonisasi Permukaan, Input, Tabel & Tipografi agar 100% Putih Mewah Nyaman di Mata */
+    #app-root .bg-slate-900,
+    #app-root .bg-slate-900\/90,
+    #app-root .bg-slate-900\/95,
+    #app-root .bg-slate-900\/60,
+    #app-root .bg-slate-900\/50,
+    #app-root .bg-slate-950,
+    #app-root .bg-slate-950\/80,
+    #modal-root .glass-card .bg-slate-900,
+    #modal-root .glass-card .bg-slate-900\/90,
+    #modal-root .glass-card .bg-slate-950 {
+      background-color: #F8FAFC !important;
+    }
+    #app-root .bg-slate-800,
+    #app-root .bg-slate-800\/90,
+    #app-root .bg-slate-800\/80,
+    #app-root .bg-slate-800\/60,
+    #modal-root .glass-card .bg-slate-800 {
+      background-color: #F1F5F9 !important;
+      color: #1E293B !important;
+      border-color: #CBD5E1 !important;
+    }
+    #app-root .hover\:bg-slate-800:hover,
+    #app-root .hover\:bg-slate-800\/80:hover,
+    #app-root .hover\:bg-slate-800\/60:hover,
+    #app-root .hover\:bg-slate-700:hover,
+    #modal-root .glass-card .hover\:bg-slate-800:hover,
+    #modal-root .glass-card .hover\:bg-slate-700:hover {
+      background-color: #E2E8F0 !important;
+    }
+
+    /* Panel Aksen Pastel Berkelas */
+    #app-root .bg-rose-950,
+    #app-root .bg-rose-950\/80,
+    #app-root .bg-rose-950\/70,
+    #app-root .bg-rose-950\/50,
+    #app-root .bg-rose-950\/40,
+    #app-root .bg-rose-950\/35,
+    #modal-root .glass-card .bg-rose-950,
+    #modal-root .glass-card .bg-rose-950\/40 {
+      background-color: #FFF1F2 !important;
+      border-color: #FDA4AF !important;
+      color: #BE123C !important;
+    }
+    #app-root .bg-emerald-950\/40,
+    #modal-root .glass-card .bg-emerald-950\/40 {
+      background-color: #ECFDF5 !important;
+      border-color: #6EE7B7 !important;
+      color: #047857 !important;
+    }
+    #app-root .bg-amber-950\/60,
+    #app-root .bg-amber-950\/40,
+    #modal-root .glass-card .bg-amber-950\/60 {
+      background-color: #FFFBEB !important;
+      border-color: #FCD34D !important;
+      color: #B45309 !important;
+    }
+    #app-root .bg-sky-950\/30,
+    #modal-root .glass-card .bg-sky-950\/30 {
+      background-color: #F0F9FF !important;
+      border-color: #BAE6FD !important;
+    }
+
+    /* Input, Select & Textarea Putih Bersih dgn Ring Fokus Emas/Safir */
+    #app-root input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+    #app-root select,
+    #app-root textarea,
+    #modal-root .glass-card input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+    #modal-root .glass-card select,
+    #modal-root .glass-card textarea {
+      background-color: #FFFFFF !important;
+      color: #0F172A !important;
+      border-color: #CBD5E1 !important;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+      font-weight: 500;
+    }
+    #app-root input::placeholder,
+    #app-root textarea::placeholder,
+    #modal-root .glass-card input::placeholder,
+    #modal-root .glass-card textarea::placeholder {
+      color: #94A3B8 !important;
+    }
+    #app-root input:focus,
+    #app-root select:focus,
+    #app-root textarea:focus,
+    #modal-root .glass-card input:focus,
+    #modal-root .glass-card select:focus,
+    #modal-root .glass-card textarea:focus {
+      border-color: #D97706 !important;
+      box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.16) !important;
+      outline: none !important;
+    }
+
+    /* Garis Pembatas & Tabel Rapi */
+    #app-root .border-slate-800,
+    #app-root .border-slate-800\/80,
+    #app-root .border-slate-800\/70,
+    #app-root .border-slate-800\/60,
+    #app-root .border-slate-700,
+    #app-root .border-slate-700\/80,
+    #app-root .border-slate-600,
+    #app-root .border-white\/10,
+    #modal-root .glass-card .border-slate-800,
+    #modal-root .glass-card .border-slate-700 {
+      border-color: #E2E8F0 !important;
+    }
+    #app-root .divide-slate-800\/60 > :not([hidden]) ~ :not([hidden]) {
+      border-color: #E2E8F0 !important;
+    }
+    #app-root table thead tr {
+      background-color: #F8FAFC;
+    }
+    #app-root table tbody tr:hover {
+      background-color: rgba(241, 245, 249, 0.65);
+    }
+
+    /* Tipografi Tajam & Elegan di Atas Background Putih */
+    #app-root .text-white,
+    #modal-root .glass-card .text-white {
+      color: #0F172A !important;
+    }
+    /* Pertahankan teks putih murni pada tombol aksi berwarna pekat */
+    #app-root .btn-luxury,
+    #app-root .btn-cyber,
+    #app-root .bg-emerald-600,
+    #app-root .bg-sky-600,
+    #app-root .bg-rose-600,
+    #app-root .bg-rose-600\/80,
+    #app-root .srv-banner-strip,
+    #modal-root .btn-luxury,
+    #modal-root .btn-cyber,
+    #modal-root .bg-emerald-600,
+    #modal-root .bg-sky-600,
+    #modal-root .bg-rose-600,
+    #modal-root .bg-rose-600\/80,
+    #modal-root .srv-banner-strip {
+      color: #FFFFFF !important;
+    }
+    #app-root .text-slate-200,
+    #app-root .text-slate-300,
+    #modal-root .glass-card .text-slate-200,
+    #modal-root .glass-card .text-slate-300 {
+      color: #334155 !important;
+    }
+    #app-root .text-slate-400,
+    #app-root .text-slate-500,
+    #modal-root .glass-card .text-slate-400,
+    #modal-root .glass-card .text-slate-500 {
+      color: #64748B !important;
+    }
+    #app-root .text-amber-300,
+    #app-root .text-amber-400,
+    #app-root .text-amber-200,
+    #app-root .text-amber-300\/90,
+    #modal-root .glass-card .text-amber-300,
+    #modal-root .glass-card .text-amber-400,
+    #modal-root .glass-card .text-amber-200 {
+      color: #B45309 !important;
+    }
+    #app-root .text-sky-300,
+    #app-root .text-sky-400,
+    #app-root .text-sky-200,
+    #app-root .text-sky-300\/90,
+    #modal-root .glass-card .text-sky-300,
+    #modal-root .glass-card .text-sky-400,
+    #modal-root .glass-card .text-sky-200 {
+      color: #0369A1 !important;
+    }
+    #app-root .text-emerald-300,
+    #app-root .text-emerald-400,
+    #app-root .text-emerald-200,
+    #modal-root .glass-card .text-emerald-300,
+    #modal-root .glass-card .text-emerald-400,
+    #modal-root .glass-card .text-emerald-200 {
+      color: #047857 !important;
+    }
+    #app-root .text-rose-300,
+    #app-root .text-rose-400,
+    #app-root .text-rose-200,
+    #modal-root .glass-card .text-rose-300,
+    #modal-root .glass-card .text-rose-400,
+    #modal-root .glass-card .text-rose-200 {
+      color: #BE123C !important;
+    }
+    #app-root .text-indigo-200,
+    #app-root .text-indigo-300,
+    #modal-root .glass-card .text-indigo-200,
+    #modal-root .glass-card .text-indigo-300 {
+      color: #4338CA !important;
+    }
+
     /* Indikator Bluetooth Printer Pojok Kanan Atas */
     .bt-pill-disconnected {
-      background: rgba(244, 63, 94, 0.16);
-      border: 1px solid rgba(244, 63, 94, 0.65);
-      color: #FECDD3;
-      box-shadow: 0 0 18px rgba(244, 63, 94, 0.25);
+      background: #FFF1F2;
+      border: 1px solid #FDA4AF;
+      color: #BE123C;
+      box-shadow: 0 4px 14px rgba(244, 63, 94, 0.14);
     }
     .bt-pill-disconnected:hover {
-      background: rgba(244, 63, 94, 0.28);
+      background: #FFE4E6;
     }
     .bt-pill-connecting {
-      background: rgba(245, 158, 11, 0.18);
-      border: 1px solid rgba(245, 158, 11, 0.65);
-      color: #FDE68A;
-      box-shadow: 0 0 18px rgba(245, 158, 11, 0.25);
+      background: #FFFBEB;
+      border: 1px solid #FCD34D;
+      color: #B45309;
+      box-shadow: 0 4px 14px rgba(245, 158, 11, 0.16);
     }
     .bt-pill-connected {
-      background: rgba(16, 185, 129, 0.18);
-      border: 1px solid rgba(16, 185, 129, 0.7);
-      color: #A7F3D0;
-      box-shadow: 0 0 18px rgba(16, 185, 129, 0.3);
+      background: #ECFDF5;
+      border: 1px solid #6EE7B7;
+      color: #047857;
+      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.16);
     }
     .bt-pill-connected:hover {
-      background: rgba(16, 185, 129, 0.28);
+      background: #D1FAE5;
     }
+
     /* Animasi Loading Muter Update Otomatis */
     @keyframes spinSlow {
       0% { transform: rotate(0deg); }
@@ -109,21 +316,22 @@
       width: 84px;
       height: 84px;
       border-radius: 50%;
-      border: 4px solid rgba(245, 158, 11, 0.15);
-      border-top-color: #F59E0B;
-      border-right-color: #38BDF8;
+      border: 4px solid rgba(217, 119, 6, 0.18);
+      border-top-color: #D97706;
+      border-right-color: #0284C7;
       animation: spinSlow 0.9s linear infinite;
     }
     .spinner-inner {
       width: 58px;
       height: 58px;
       border-radius: 50%;
-      border: 4px solid rgba(56, 189, 248, 0.15);
-      border-bottom-color: #38BDF8;
-      border-left-color: #FDE68A;
+      border: 4px solid rgba(2, 132, 199, 0.18);
+      border-bottom-color: #0284C7;
+      border-left-color: #F59E0B;
       animation: spinReverse 0.65s linear infinite;
     }
-    /* Kertas Thermal 58mm & 80mm */
+
+    /* Kertas Thermal 58mm, 80mm & Nota Servis Resmi 2 Kolom (Persis Foto Nota Asli) */
     .receipt-58mm {
       width: 280px;
       font-family: 'JetBrains Mono', monospace;
@@ -135,6 +343,31 @@
       font-family: 'JetBrains Mono', monospace;
       font-size: 12px;
       line-height: 1.42;
+    }
+    .receipt-servis-official {
+      width: 680px;
+      max-width: 100%;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-size: 11px;
+      line-height: 1.35;
+      color: #0F172A;
+      background: #FFFFFF;
+      border: 2px solid #881337;
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .srv-banner-strip {
+      background: linear-gradient(90deg, #881337 0%, #9F1239 50%, #881337 100%);
+      color: #FFFFFF !important;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .srv-box-border {
+      border: 1.5px solid #881337;
+    }
+    .srv-row-line {
+      border-bottom: 1px solid #9F1239;
     }
     .receipt-cut-line {
       border-top: 1px dashed #000;
@@ -151,7 +384,7 @@
       display: block !important;
     }
     @page {
-      margin: 2mm;
+      margin: 3mm;
     }
     @media print {
       html, body {
@@ -201,39 +434,39 @@
     }
   </style>
 </head>
-<body class="antialiased selection:bg-amber-500 selection:text-slate-950">
+<body class="antialiased selection:bg-amber-500 selection:text-white">
 
   <!-- ===================================================================== -->
   <!-- OVERLAY LOADING MUTER OTOMATIS SAAT SW.JS ADA UPDATE BARU DI GITHUB   -->
   <!-- ===================================================================== -->
-  <div id="sw-update-overlay" class="fixed inset-0 z-[9999] hidden flex-col items-center justify-center bg-slate-950/95 backdrop-blur-xl px-6 text-center">
+  <div id="sw-update-overlay" class="fixed inset-0 z-[9999] hidden flex-col items-center justify-center bg-white/95 backdrop-blur-xl px-6 text-center">
     <div class="relative flex items-center justify-center mb-6">
       <div class="spinner-outer"></div>
       <div class="spinner-inner absolute"></div>
-      <div class="absolute w-3 h-3 rounded-full bg-amber-400 animate-ping"></div>
+      <div class="absolute w-3 h-3 rounded-full bg-amber-500 animate-ping"></div>
     </div>
-    <span class="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-widest bg-amber-500/20 text-amber-300 border border-amber-500/30 mb-3">
+    <span class="px-3.5 py-1 rounded-full text-[11px] font-extrabold uppercase tracking-widest bg-amber-500/15 text-amber-800 border border-amber-500/30 mb-3">
       Auto-Sync System Update
     </span>
-    <h2 id="sw-update-title" class="text-xl sm:text-2xl font-extrabold text-white mb-2">
+    <h2 id="sw-update-title" class="text-xl sm:text-2xl font-extrabold text-slate-900 mb-2">
       Memperbarui Aplikasi Azi Cell...
     </h2>
-    <p id="sw-update-desc" class="text-sm text-slate-300 max-w-md mb-6">
+    <p id="sw-update-desc" class="text-sm text-slate-600 max-w-md mb-6">
       Sistem mendeteksi pembaruan terbaru dari server. Mohon tunggu sebentar, sedang menyelaraskan modul & cache...
     </p>
-    <div class="w-64 h-2 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
-      <div id="sw-update-bar" class="h-full bg-gradient-to-r from-amber-400 via-sky-400 to-indigo-500 transition-all duration-300" style="width: 35%"></div>
+    <div class="w-64 h-2.5 bg-slate-200 rounded-full overflow-hidden border border-slate-300">
+      <div id="sw-update-bar" class="h-full bg-gradient-to-r from-amber-500 via-sky-500 to-indigo-600 transition-all duration-300" style="width: 35%"></div>
     </div>
   </div>
 
-  <!-- TOAST NOTIFICATION (Diturunkan sedikit agar tidak menutupi tombol Bluetooth pojok kanan atas) -->
+  <!-- TOAST NOTIFICATION -->
   <div id="toast-container" class="fixed top-16 sm:top-20 right-4 z-[9000] flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4 sm:px-0"></div>
 
   <!-- ROOT APP CONTAINER -->
   <div id="app-root" class="min-h-screen flex flex-col"></div>
 
   <!-- MODAL CONTAINER (UNTUK NOTA, PANDUAN INSTAL, DETAIL SERVIS, PRINTER BT, DLL) -->
-  <div id="modal-root" class="fixed inset-0 z-[8000] hidden items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 overflow-y-auto"></div>
+  <div id="modal-root" class="fixed inset-0 z-[8000] hidden items-center justify-center bg-slate-900/45 backdrop-blur-sm p-4 overflow-y-auto"></div>
 
   <script src="config.js"></script>
   <script src="app.js"></script>
