@@ -8,7 +8,7 @@
  * menampilkan animasi LOADING MUTER dan menarik versi terbaru tanpa nyangkut!
  * ============================================================================
  */
-const CACHE_VERSION = 'azicell-pwa-v1.0.6';
+const CACHE_VERSION = 'azicell-pwa-v1.0.7';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',

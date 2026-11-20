@@ -1158,9 +1158,12 @@
   function openModal(html) {
     const m = document.getElementById('modal-root');
     if (!m) return;
+    const wasOpen = !m.classList.contains('hidden');
+    const prevScroll = wasOpen ? m.scrollTop : 0;
     m.innerHTML = html;
     m.classList.remove('hidden');
     m.classList.add('flex');
+    m.scrollTop = prevScroll;
   }
 
   function closeModal() {
@@ -4949,10 +4952,10 @@
       const sisaTagihan = d.statusPengerjaan === 'Batal' ? 0 : Math.max(0, totalFinal - d.totalTerbayar);
 
       openModal(`
-        <div class="glass-card rounded-2xl p-5 sm:p-6 max-w-xl w-full space-y-4 text-xs my-6">
-          <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+        <div class="glass-card rounded-2xl p-5 sm:p-6 max-w-xl w-full space-y-4 text-xs my-auto">
+          <div class="sticky top-0 z-20 bg-white/95 backdrop-blur flex items-center justify-between border-b border-slate-800 pb-2.5 pt-1 -mt-1">
             <h3 class="text-sm font-extrabold text-white">Pengerjaan, Kelengkapan, Sandi/Pola & Biaya Servis ${esc(d.no)}</h3>
-            <button onclick="window.AZI.closeModal()" class="text-slate-400 hover:text-white text-xl">&times;</button>
+            <button type="button" onclick="window.AZI.closeModal()" class="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-lg font-bold flex items-center justify-center">&times;</button>
           </div>
 
           <form onsubmit="window.AZI.saveServiceProgress(event, '${escJs(d.no)}')" class="space-y-3.5">

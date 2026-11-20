@@ -383,6 +383,12 @@
     .print-mode-2x .copy-print-only {
       display: block !important;
     }
+    /* Safe Flex Centering pada Modal agar Modal Panjang TIDAK PERNAH Terpotong Atasnya */
+    #modal-root > * {
+      margin-top: auto;
+      margin-bottom: auto;
+    }
+
     @page {
       margin: 3mm;
     }
@@ -466,7 +472,7 @@
   <div id="app-root" class="min-h-screen flex flex-col"></div>
 
   <!-- MODAL CONTAINER (UNTUK NOTA, PANDUAN INSTAL, DETAIL SERVIS, PRINTER BT, DLL) -->
-  <div id="modal-root" class="fixed inset-0 z-[8000] hidden items-center justify-center bg-slate-900/45 backdrop-blur-sm p-4 overflow-y-auto"></div>
+  <div id="modal-root" class="fixed inset-0 z-[8000] hidden items-start justify-center bg-slate-900/45 backdrop-blur-sm p-3 sm:p-6 overflow-y-auto"></div>
 
   <script src="config.js"></script>
   <script src="app.js"></script>
